@@ -48,8 +48,8 @@ try:
 except ImportError:
     _SDK_AVAILABLE = False
 
-from ._model import collect_gateway_env, resolve_model_name
-from ._logger import create_logger
+from .._model import collect_gateway_env, resolve_model_name
+from .._logger import create_logger
 
 
 logger = create_logger("chat")

@@ -11,7 +11,7 @@ History handler — EdgeOne Pages Functions
 
 from typing import Any
 
-from ._logger import create_logger
+from .._logger import create_logger
 
 logger = create_logger("history")
 
