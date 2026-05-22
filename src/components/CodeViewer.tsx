@@ -145,12 +145,10 @@ export default function CodeViewer() {
             <I /><Op t=")" />
           </L>
           <L n={28}>
-            <I /><Cmt t="# files / code_interpreter / browser 同理" />
+            <I /><Cmt t="# More tools can be added here" />
           </L>
 
-          {/* -- Section Divider -- */}
-          <div className={styles.sectionGap} />
-          <div className={styles.sectionLabel}>// MCP Server &amp; Agent Launch</div>
+          {/* -- Section Divider (gap removed) -- */}
 
           {/* ═══ Step 5: MCP Server ═══ */}
           <L n={29}>

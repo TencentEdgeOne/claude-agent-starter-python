@@ -16,17 +16,16 @@ SSE 事件协议：
   同时用 ctx.store.append_message() 保存 user/assistant 消息供 /history 读取。
 
 工具：使用 EdgeOne 平台提供的沙箱工具（commands/files/code_interpreter/browser），
-     通过 Claude SDK 的 MCP Server 机制桥接。
+     通过 ctx.tools.to_claude_mcp_server() 直接桥接到 Claude SDK。
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import sys
 import time
-from typing import Any, Annotated, AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from dotenv import load_dotenv
 
@@ -35,11 +34,7 @@ load_dotenv()
 # 尝试导入 Claude Agent SDK
 try:
     from claude_agent_sdk import (
-        AssistantMessage,
         ClaudeAgentOptions,
-        ResultMessage,
-        StreamEvent,
-        SdkMcpTool,
         create_sdk_mcp_server,
         query,
     )
@@ -54,10 +49,6 @@ from .._logger import create_logger
 
 logger = create_logger("chat")
 HEARTBEAT_INTERVAL_S = 5
-MCP_SERVER_NAME = "edgeone"
-
-# ── EdgeOne 平台沙箱工具名 ──
-EDGEONE_TOOL_NAMES = ["commands", "files", "code_interpreter", "browser"]
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant running inside an EdgeOne sandbox environment.\n"
@@ -74,58 +65,6 @@ SYSTEM_PROMPT = (
     "Do NOT use any tools other than those listed above."
 )
 
-# ── 工具输入 Schema（对应 Node 版的 Zod schemas）──
-TOOL_INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
-    "commands": {
-        "type": "object",
-        "properties": {
-            "cmd": {"type": "string", "description": "Shell command to execute"},
-            "cwd": {"type": "string", "description": "Working directory"},
-        },
-        "required": ["cmd"],
-    },
-    "files": {
-        "type": "object",
-        "properties": {
-            "op": {
-                "type": "string",
-                "enum": ["read", "write", "list", "exists", "remove", "makeDir"],
-                "description": "File operation",
-            },
-            "path": {"type": "string", "description": "File or directory path"},
-            "content": {"type": "string", "description": "Content for write"},
-        },
-        "required": ["op", "path"],
-    },
-    "browser": {
-        "type": "object",
-        "properties": {
-            "op": {
-                "type": "string",
-                "enum": ["fetch", "screenshot", "click", "type", "evaluate"],
-                "description": "Browser operation",
-            },
-            "url": {"type": "string", "description": "Target URL"},
-            "selector": {"type": "string", "description": "CSS selector"},
-            "text": {"type": "string", "description": "Text to type"},
-            "script": {"type": "string", "description": "JavaScript to evaluate"},
-        },
-        "required": ["op"],
-    },
-    "code_interpreter": {
-        "type": "object",
-        "properties": {
-            "language": {
-                "type": "string",
-                "enum": ["python", "javascript", "r", "bash"],
-                "description": "Language to execute",
-            },
-            "code": {"type": "string", "description": "Code to execute"},
-        },
-        "required": ["language", "code"],
-    },
-}
-
 
 def _extract_tool_name(raw_name: str) -> str:
     """从 MCP 工具全名中提取短名（如 mcp__edgeone__commands → commands）"""
@@ -134,120 +73,20 @@ def _extract_tool_name(raw_name: str) -> str:
     return raw_name
 
 
-def _stringify_tool_result(result: Any) -> str:
-    """将工具返回值转换为字符串"""
-    if isinstance(result, str):
-        return result
+def _safe_json_preview(value: Any, max_length: int = 800) -> str:
+    """将值转为 JSON 字符串预览，超长截断"""
     try:
-        return json.dumps(result, ensure_ascii=False, default=str)
+        text = json.dumps(value, ensure_ascii=False, default=str)
+        if not text:
+            return str(value)
+        return f"{text[:max_length]}...<truncated>" if len(text) > max_length else text
     except (TypeError, ValueError):
-        return str(result)
-
-
-def _call_with_kwargs(fn: Any, args: dict[str, Any]) -> bool:
-    """判断函数是否应该以 **kwargs 方式调用"""
-    try:
-        sig = inspect.signature(fn)
-    except (TypeError, ValueError):
-        return False
-
-    params = list(sig.parameters.values())
-    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params):
-        return True
-
-    required = [
-        p.name for p in params
-        if p.default is inspect.Parameter.empty
-        and p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-    ]
-    if required and all(n in args for n in required):
-        return True
-
-    try:
-        sig.bind(args)
-        return False
-    except TypeError:
-        pass
-
-    try:
-        sig.bind(**args)
-        return True
-    except TypeError:
-        return False
-
-
-def build_edgeone_mcp_tools(ctx: Any) -> tuple[list["SdkMcpTool[Any]"], list[str]]:
-    """
-    构建 EdgeOne 平台工具 → Claude Agent SDK MCP tools。
-    返回 (tools, allowed_tools)。
-    """
-    raw_tools = getattr(ctx, "tools", None)
-    if raw_tools is None or not hasattr(raw_tools, "all"):
-        logger.log("[tools] no platform tools available")
-        return [], []
-
-    platform_tools = raw_tools.all()
-    logger.log(f"[tools] platform tools count: {len(platform_tools)}")
-
-    mcp_tools: list[SdkMcpTool[Any]] = []
-
-    for item in platform_tools:
-        if isinstance(item, dict):
-            name = item.get("name") or (item.get("function") or {}).get("name")
-            description = item.get("description") or (item.get("function") or {}).get("description", "")
-            execute = (
-                item.get("execute")
-                or item.get("handler")
-                or item.get("invoke")
-            )
-        else:
-            name = getattr(item, "name", None)
-            description = getattr(item, "description", "") or getattr(getattr(item, "function", None), "description", "")
-            execute = (
-                getattr(item, "execute", None)
-                or getattr(item, "handler", None)
-                or getattr(item, "invoke", None)
-            )
-
-        input_schema = TOOL_INPUT_SCHEMAS.get(name) if name else None
-
-        if not name or not input_schema or not callable(execute):
-            logger.log(f"[tools] skipped unsupported platform tool: {name or '<unknown>'}")
-            continue
-
-        # 创建闭包捕获 execute 和 item
-        def _make_handler(_execute: Any, _item: Any):
-            async def handler(args: dict[str, Any]) -> dict[str, Any]:
-                try:
-                    if _call_with_kwargs(_execute, args):
-                        result = _execute(**args)
-                    else:
-                        result = _execute(args)
-                    if inspect.isawaitable(result):
-                        result = await result
-                    text = _stringify_tool_result(result)
-                    return {"content": [{"type": "text", "text": text}]}
-                except Exception as e:
-                    message = str(e)
-                    return {"content": [{"type": "text", "text": message}], "isError": True}
-            return handler
-
-        mcp_tool = SdkMcpTool(
-            name=name,
-            description=description or f"EdgeOne platform tool: {name}",
-            input_schema=input_schema,
-            handler=_make_handler(execute, item),
-        )
-        mcp_tools.append(mcp_tool)
-        logger.log(f"[tools] registered platform tool: {name}")
-
-    allowed_tools = [f"mcp__{MCP_SERVER_NAME}__{t.name}" for t in mcp_tools]
-    return mcp_tools, allowed_tools
+        return str(value)
 
 
 def build_agent_options(
     session_store=None,
-    mcp_server=None,
+    mcp_servers: list | None = None,
     allowed_tools: list[str] | None = None,
 ) -> "ClaudeAgentOptions":
     """构造 Claude Agent SDK 的运行配置。
@@ -266,8 +105,8 @@ def build_agent_options(
     )
     if session_store is not None:
         opts.session_store = session_store
-    if mcp_server is not None:
-        opts.mcp_servers = {MCP_SERVER_NAME: mcp_server}
+    if mcp_servers is not None:
+        opts.mcp_servers = mcp_servers
     return opts
 
 
@@ -309,22 +148,36 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         except Exception as e:
             logger.error(f"[store] failed to save user message: {e}")
 
-    # 构建 EdgeOne 平台工具 → Claude Agent SDK MCP server
-    mcp_tools, allowed_tools = build_edgeone_mcp_tools(ctx)
-    mcp_server = create_sdk_mcp_server(
-        name=MCP_SERVER_NAME,
-        tools=mcp_tools,
-    )
+    # 通过平台提供的 to_claude_mcp_server() 直接获取 MCP 工具配置
+    # 对应 TypeScript 版的 context.tools.toClaudeMcpServer()
+    platform_tools = getattr(ctx, "tools", None)
+    if platform_tools is None or not hasattr(platform_tools, "to_claude_mcp_server"):
+        yield sse_event("error", {"message": "ctx.tools.to_claude_mcp_server is unavailable. Please upgrade the EdgeOne Pages agent runtime."})
+        yield sse_event("done", {"stopped": False})
+        return
+
+    edgeone_mcp = platform_tools.to_claude_mcp_server()
+
+    mcp_servers = [
+        create_sdk_mcp_server(
+            name=edgeone_mcp.name,
+            tools=edgeone_mcp.tools,
+        )
+    ]
+
+    allowed_tools = edgeone_mcp.allowed_tools
+    logger.log(f"[tools] registered EdgeOne MCP tools: {allowed_tools}")
 
     options = build_agent_options(
         session_store=session_store,
-        mcp_server=mcp_server,
+        mcp_servers=mcp_servers,
         allowed_tools=allowed_tools,
     )
 
     stopped = False
     full_assistant_text = ""
     sent_text_len_by_block: dict[int, int] = {}
+    last_msg_type = ""
 
     try:
         # 使用 query() API（对应 Node 版的 query({ prompt, options })）
@@ -361,75 +214,86 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
                     break
                 pending = None
 
-                # ── 处理 StreamEvent（原始 Anthropic API 流事件）──
-                # 这是实时流式推送的关键：text_delta 逐字到达
-                if isinstance(msg, StreamEvent):
-                    event = msg.event
-                    event_type = event.get("type", "")
-                    logger.log(f"[stream] StreamEvent type={event_type}")
+                # 获取消息类型（兼容 dict 和对象）
+                msg_type = msg.get("type", "") if isinstance(msg, dict) else getattr(msg, "type", "")
 
-                    if event_type == "content_block_delta":
-                        delta = event.get("delta", {})
-                        if delta.get("type") == "text_delta":
-                            text = delta.get("text", "")
-                            if text:
-                                full_assistant_text += text
-                                yield sse_event("text_delta", {"delta": text})
+                # 检测到新一轮 assistant 消息：如果上一条是 user（tool_result），清空计数器
+                if msg_type == "assistant" and last_msg_type == "user":
+                    sent_text_len_by_block.clear()
+                last_msg_type = msg_type
 
-                    elif event_type == "content_block_start":
-                        block = event.get("content_block", {})
-                        if block.get("type") == "tool_use":
-                            raw_name = block.get("name", "")
-                            tool_name = _extract_tool_name(raw_name)
-                            if tool_name:
-                                logger.log(f"[stream] tool_called: {tool_name}")
-                                yield sse_event("tool_called", {"tool": tool_name})
+                # ── 拦截 tool_result 中的 base64Image，作为 image 事件推送给前端 ──
+                if msg_type == "user":
+                    try:
+                        msg_obj = msg if isinstance(msg, dict) else msg.__dict__ if hasattr(msg, "__dict__") else {}
+                        tool_results = msg_obj.get("tool_use_result") or (msg_obj.get("message", {}) or {}).get("content", [])
+                        result_arr = tool_results if isinstance(tool_results, list) else [tool_results]
+                        for item in result_arr:
+                            text = item if isinstance(item, str) else (
+                                item.get("text", "") if isinstance(item, dict) else
+                                getattr(item, "text", getattr(item, "content", ""))
+                            )
+                            if isinstance(text, str) and "base64Image" in text:
+                                try:
+                                    parsed = json.loads(text)
+                                    if parsed.get("base64Image"):
+                                        logger.log(f"[image] extracted base64Image from tool_result, size: {len(parsed['base64Image'])}")
+                                        yield sse_event("image", {"base64": parsed["base64Image"]})
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                    except Exception as e:
+                        logger.error(f"[image] failed to extract base64Image: {e}")
 
-                # ── 处理 AssistantMessage（累积的完整/部分消息）──
-                # 作为兜底：如果 StreamEvent 未正常工作，从 AssistantMessage 提取增量
-                elif isinstance(msg, AssistantMessage):
-                    content = getattr(msg, "content", None)
+                # ── 调试：推送非 assistant/result 消息类型让前端可观测 ──
+                if msg_type not in ("assistant", "result"):
+                    yield sse_event("debug_msg", {
+                        "msgType": msg_type,
+                        "preview": _safe_json_preview(msg, 4000),
+                    })
 
-                    # 检查错误
-                    error = getattr(msg, "error", None)
-                    if error:
-                        err_text = ""
-                        if isinstance(content, list):
-                            for block in content:
-                                t = getattr(block, "text", None)
-                                if t:
-                                    err_text = t
-                                    break
-                        logger.error(f"[error] SDK error={error}, text={err_text}")
-                        yield sse_event("error", {"message": err_text or str(error)})
-                        break
+                # ── 处理 assistant 消息 ──
+                if msg_type == "assistant":
+                    # 获取 content blocks（兼容 dict 和对象）
+                    if isinstance(msg, dict):
+                        blocks = (msg.get("message") or {}).get("content", [])
+                    else:
+                        message_obj = getattr(msg, "message", None)
+                        blocks = getattr(message_obj, "content", None) if message_obj else getattr(msg, "content", None)
+                        if blocks is None:
+                            blocks = []
 
-                    if isinstance(content, list):
-                        for idx, block in enumerate(content):
-                            block_type = getattr(block, "type", None)
+                    for idx, block in enumerate(blocks):
+                        block_type = block.get("type", "") if isinstance(block, dict) else getattr(block, "type", "")
 
-                            if block_type == "text":
-                                full_text = getattr(block, "text", "") or ""
-                                already_sent = sent_text_len_by_block.get(idx, 0)
-                                if len(full_text) > already_sent:
-                                    delta = full_text[already_sent:]
-                                    sent_text_len_by_block[idx] = len(full_text)
-                                    full_assistant_text = full_text
-                                    yield sse_event("text_delta", {"delta": delta})
+                        if block_type == "text":
+                            full_text = (block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")) or ""
+                            already_sent = sent_text_len_by_block.get(idx, 0)
+                            if len(full_text) > already_sent:
+                                delta = full_text[already_sent:]
+                                sent_text_len_by_block[idx] = len(full_text)
+                                full_assistant_text = full_text
+                                yield sse_event("text_delta", {"delta": delta})
 
-                            elif block_type == "tool_use":
-                                tool_name = _extract_tool_name(getattr(block, "name", "") or "")
-                                if tool_name:
-                                    logger.log(f"[stream] tool_called: {tool_name}")
-                                    yield sse_event("tool_called", {"tool": tool_name})
+                        elif block_type == "tool_use":
+                            raw_tool_name = (block.get("name", "") if isinstance(block, dict) else getattr(block, "name", "")) or ""
+                            tool_name = _extract_tool_name(raw_tool_name)
+                            tool_id = block.get("id") if isinstance(block, dict) else getattr(block, "id", None)
+                            tool_input = block.get("input") if isinstance(block, dict) else getattr(block, "input", None)
 
-                elif isinstance(msg, ResultMessage):
-                    logger.log("[stream] ResultMessage received, ending stream")
+                            logger.log(f"[tools] call requested cid={cid} tool={tool_name} raw={raw_tool_name} toolId={tool_id} inputPreview={_safe_json_preview(tool_input)}")
+                            yield sse_event("tool_called", {"tool": tool_name})
+
+                        else:
+                            # 其他类型 block（如 image）：以 debug_block 事件原样推送给前端
+                            yield sse_event("debug_block", {
+                                "blockIndex": idx,
+                                "blockType": block_type,
+                                "block": _safe_json_preview(block, 4000),
+                            })
+
+                elif msg_type == "result":
+                    logger.log("[stream] result message received, ending stream")
                     break
-
-                else:
-                    # 其他消息类型（如 RateLimitEvent），记录但不处理
-                    logger.log(f"[stream] unhandled message type: {type(msg).__name__}")
 
         finally:
             if pending is not None and not pending.done():
