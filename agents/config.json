@@ -13,7 +13,7 @@
     {
       "path": "/history",
       "src": "^/history$",
-      "isIndex": true
+      "isIndex": false
     }
   ]
 }
