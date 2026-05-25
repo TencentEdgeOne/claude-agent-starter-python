@@ -1,12 +1,8 @@
 """
 History handler — EdgeOne Pages Functions
-=========================================
 
-文件路径 agents/history/index.py 自动映射到 **POST /history**
-
-根据前端传入的 pages-agent-conversation-id，从 ctx.store.get_messages()
-读取对话历史，返回前端可展示的 Message[] 格式。
-用于页面刷新后恢复前端聊天窗口。
+Route: POST /history
+Returns conversation history for frontend chat recovery after page refresh.
 """
 
 from typing import Any
@@ -17,7 +13,7 @@ logger = create_logger("history")
 
 
 def _content_to_text(content: Any) -> str:
-    """把 memory content 转成前端 Message.content 可展示的字符串。"""
+    """Convert stored content to a displayable string for the frontend."""
     if isinstance(content, str):
         return content
 
@@ -43,9 +39,8 @@ def _content_to_text(content: Any) -> str:
 
 
 async def handler(context: Any):
-    """读取对话历史并返回前端可展示的消息列表。"""
+    """Read conversation history and return frontend-displayable message list."""
     cid = getattr(context, "conversation_id", None) or ""
-    logger.log(f"conversation_id: {cid}")
 
     store = getattr(context, "store", None)
     if store is None or not cid:
@@ -74,5 +69,4 @@ async def handler(context: Any):
             "timestamp": getattr(item, "created_at", None) or 0,
         })
 
-    logger.log(f"loaded {len(messages)} messages")
     return {"conversation_id": cid, "messages": messages}
