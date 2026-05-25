@@ -28,3 +28,6 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# Debug logs (keep .gitkeep, ignore actual log files)
+log/*.md
