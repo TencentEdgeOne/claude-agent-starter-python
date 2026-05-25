@@ -166,6 +166,12 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         t_name = getattr(t, "name", None) or getattr(t, "get", lambda k, d=None: d)("name", "unknown")
         logger.log(f"[debug][tools]   tool: {t_name}")
     logger.log(f"[debug][tools] allowed_tools: {edgeone_mcp.allowed_tools}")
+
+    # 每次请求写入分隔符，方便区分不同对话轮次
+    logger.tool_debug(
+        "--- new_request ---",
+        f"conversation_id={cid}\nuser_message={user_message[:300]}"
+    )
     mcp_server = create_sdk_mcp_server(
         name=edgeone_mcp.name,
         tools=edgeone_mcp.tools,
@@ -251,6 +257,11 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
                             tool_id = block.get("id", "")
                             tool_name = _extract_tool_name(raw_name)
                             logger.log(f"[debug][tool] START tool_use: raw_name={raw_name}, extracted={tool_name}, id={tool_id}")
+                            # 记录工具调用开始
+                            logger.tool_debug(
+                                "tool_start",
+                                f"raw_name={raw_name}\nextracted={tool_name}\ntool_id={tool_id}\nindex={event.get('index')}"
+                            )
                             if tool_name:
                                 yield sse_event("tool_called", {"tool": tool_name})
 
@@ -271,6 +282,11 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
 
                     else:
                         logger.log(f"[debug][StreamEvent] unhandled event_type={event_type}, event={json.dumps(event, ensure_ascii=False)[:500]}")
+                        # 未处理的 StreamEvent 写入文件日志
+                        logger.tool_debug(
+                            "unhandled_stream_event",
+                            f"event_type={event_type}\nevent={json.dumps(event, ensure_ascii=False)[:800]}"
+                        )
 
                 # ── 处理 AssistantMessage（累积的完整/部分消息）──
                 # 作为兜底：如果 StreamEvent 未正常工作，从 AssistantMessage 提取增量
@@ -290,6 +306,11 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
                                     err_text = t
                                     break
                         logger.error(f"[debug][error] SDK error={error}, text={err_text}")
+                        # SDK 错误写入文件日志
+                        logger.tool_debug(
+                            "sdk_error",
+                            f"error={error}\nerr_text={err_text}"
+                        )
                         yield sse_event("error", {"message": err_text or str(error)})
                         break
 
@@ -311,6 +332,11 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
                                 tool_id = getattr(block, "id", "")
                                 tool_input = getattr(block, "input", None)
                                 logger.log(f"[debug][AssistantMessage] tool_use block: name={tool_name}, id={tool_id}, input={json.dumps(tool_input, ensure_ascii=False)[:300] if tool_input else None}")
+                                # 记录工具调用
+                                logger.tool_debug(
+                                    "tool_use",
+                                    f"name={tool_name}\nid={tool_id}\ninput={json.dumps(tool_input, ensure_ascii=False) if tool_input else 'None'}"
+                                )
                                 if tool_name:
                                     yield sse_event("tool_called", {"tool": tool_name})
 
@@ -327,9 +353,19 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
                                             result_preview = (getattr(rb, "text", "") or "")[:500]
                                             break
                                 logger.log(f"[debug][AssistantMessage] tool_result: tool_use_id={tool_use_id}, is_error={is_error}, preview={result_preview}")
+                                # 记录所有工具结果（成功+失败都记录）
+                                logger.tool_debug(
+                                    "tool_result" if not is_error else "tool_error",
+                                    f"tool_use_id={tool_use_id}\nis_error={is_error}\nresult_preview={result_preview}"
+                                )
 
                             else:
                                 logger.log(f"[debug][AssistantMessage] unknown block type={block_type}, block={block}")
+                                # unknown block type 写入文件日志
+                                logger.tool_debug(
+                                    "unknown_block",
+                                    f"block_type={block_type}\nblock={block}"
+                                )
 
                 elif isinstance(msg, ResultMessage):
                     result_text = getattr(msg, "text", None) or ""
@@ -340,6 +376,10 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
                 else:
                     # 其他消息类型（如 RateLimitEvent），记录但不处理
                     logger.log(f"[debug][stream] unhandled message type: {type(msg).__name__}, repr={repr(msg)[:300]}")
+                    logger.tool_debug(
+                        "unhandled_message",
+                        f"type={type(msg).__name__}\nrepr={repr(msg)[:600]}"
+                    )
 
         finally:
             if pending is not None and not pending.done():
@@ -364,6 +404,12 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         else:
             prefix = "未知错误"
         logger.error(f"[error] {prefix}: {e}")
+        # 异常写入文件日志
+        import traceback
+        logger.tool_debug(
+            "exception",
+            f"{prefix}: {e}\n\ntraceback:\n{traceback.format_exc()}"
+        )
         yield sse_event("error", {"message": f"{prefix}: {e}"})
 
     # 保存 assistant response 到 store
