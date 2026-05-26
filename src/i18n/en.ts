@@ -15,8 +15,8 @@ const en = {
   // Preset questions
   "preset.1": "Use terminal commands to check the current system time and OS version.",
   "preset.2": "Create /tmp/hello.txt with content \"Hello EdgeOne\", then read it back.",
-  "preset.3": "Use Python to calculate and print the first 10 Fibonacci numbers.",
-  "preset.4": "Visit https://edgeone.ai and summarize the page content.",
+  "preset.3": "Review the chat handler code for potential issues",
+  "preset.4": "Generate API documentation for all endpoints",
 
   // Tool indicators
   "tool.commands": "Commands",
