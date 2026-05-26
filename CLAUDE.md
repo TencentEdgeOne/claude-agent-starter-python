@@ -68,7 +68,7 @@ Private modules (prefixed with `_`, not exposed as routes):
 - `edgeone.json` — Build/deploy config and agent sandbox settings (900s timeout)
 - `agents/config.json` — Route mapping for Python functions
 - `.env` — Provider config (see `.env.example`). Supports `anthropic_official` (direct) or `ai_gate` (gateway) providers
-- `vite.config.ts` — Excludes `@tencent/edgeone` from Vite's dep optimization
+- `vite.config.ts` — Frontend Vite dev/build configuration
 
 ## Styling
 
