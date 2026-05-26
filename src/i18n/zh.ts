@@ -15,8 +15,10 @@ const zh = {
   // Preset questions
   "preset.1": "用终端命令查看当前系统时间和操作系统版本。",
   "preset.2": "创建 /tmp/hello.txt 写入 \"Hello EdgeOne\"，然后读取它的内容。",
-  "preset.3": "帮我审查聊天处理器的代码质量",
-  "preset.4": "为所有 API 端点生成接口文档",
+  "preset.3": "用 Python 计算斐波那契数列前 10 项并打印出来。",
+  "preset.4": "访问 https://edgeone.ai 并总结页面内容。",
+  "preset.5": "帮我审查聊天处理器的代码质量",
+  "preset.6": "为所有 API 端点生成接口文档",
 
   // Tool indicators
   "tool.commands": "终端命令",
