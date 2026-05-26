@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, KeyboardEvent } from 'react';
+import { useT, MessageKeys } from '../i18n';
 import styles from './ChatInput.module.css';
 
 interface Props {
@@ -8,16 +9,12 @@ interface Props {
   disabled: boolean;
 }
 
-const PRESETS = [
-  '用终端命令查看当前系统时间和操作系统版本。',
-  '创建 /tmp/hello.txt 写入 "Hello EdgeOne"，然后读取它的内容。',
-  '用 Python 计算斐波那契数列前 10 项并打印出来。',
-  '访问 https://edgeone.ai 并总结页面内容。',
-];
+const PRESET_KEYS = ['preset.1', 'preset.2', 'preset.3', 'preset.4'] as const;
 
 export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { t } = useT();
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
@@ -51,14 +48,14 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
   return (
     <div className={styles.bar}>
       <div className={styles.presets}>
-        {PRESETS.map(text => (
+        {PRESET_KEYS.map(key => (
           <button
-            key={text}
+            key={key}
             className={styles.presetChip}
-            onClick={() => handlePreset(text)}
+            onClick={() => handlePreset(t(key as MessageKeys))}
             disabled={disabled}
           >
-            {text}
+            {t(key as MessageKeys)}
           </button>
         ))}
       </div>
@@ -67,7 +64,7 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
         <textarea
           ref={textareaRef}
           className={styles.textarea}
-          placeholder="发消息…  ⏎ 发送 · Shift+⏎ 换行"
+          placeholder={t("chat.placeholder")}
           value={value}
           onChange={e => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -79,7 +76,7 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
           className={`${styles.sendBtn} ${(!value.trim() || disabled) ? styles.sendDisabled : ''}`}
           onClick={handleSend}
           disabled={!value.trim() || disabled}
-          aria-label="发送"
+          aria-label="Send"
         >
           <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
             <path d="M3 10L17 3l-4 7 4 7L3 10z" fill="currentColor"/>
@@ -104,8 +101,8 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
           <button
             className={styles.stopBtn}
             onClick={onStop}
-            aria-label="停止生成"
-            title="停止生成"
+            aria-label="Stop"
+            title="Stop"
           >
             <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
               <rect x="4" y="4" width="12" height="12" rx="2" fill="currentColor"/>
@@ -113,7 +110,7 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
           </button>
         )}
       </div>
-      <p className={styles.hint}>由 Claude Agent SDK + EdgeOne Sandbox 驱动 · 仅供演示</p>
+      <p className={styles.hint}>{t("chat.hint")}</p>
     </div>
   );
 }
