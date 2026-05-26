@@ -70,9 +70,13 @@
 .markdown h3 { font-size: .95em; }
 .markdown ul, .markdown ol {
   margin: .4em 0;
-  padding-left: 1.5em;
+  padding-left: 2em;
+  list-style-position: outside;
 }
-.markdown li { margin: .15em 0; }
+.markdown li {
+  margin: .15em 0;
+  padding-left: .15em;
+}
 .markdown code {
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.08);
