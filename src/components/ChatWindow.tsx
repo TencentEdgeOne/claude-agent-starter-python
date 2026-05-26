@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Message } from '../types';
+import { useT } from '../i18n';
 import ChatBubble from './ChatBubble';
 import styles from './ChatWindow.module.css';
 
@@ -10,6 +11,7 @@ interface Props {
 
 export default function ChatWindow({ messages, loading }: Props) {
   const windowRef = useRef<HTMLDivElement>(null);
+  const { t } = useT();
 
   useEffect(() => {
     // 没有内容时不需要滚动
@@ -27,12 +29,12 @@ export default function ChatWindow({ messages, loading }: Props) {
       {messages.length === 0 && (
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>⬡</span>
-          <p className={styles.emptyTitle}>Claude Agent Starter</p>
+          <p className={styles.emptyTitle}>{t("empty.title")}</p>
           <p className={styles.emptyHint}>
-            我是运行在 EdgeOne 环境中的 Claude 助手，可以调用沙箱工具、保存会话记忆，并帮助你完成各项任务。
+            {t("empty.hint")}
           </p>
           <p className={styles.emptyFeatures}>
-            沙箱工具 · Store 会话记忆 · 自动可观测
+            {t("empty.features")}
           </p>
         </div>
       )}
