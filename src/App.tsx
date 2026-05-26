@@ -14,8 +14,14 @@ const LAMP_I18N_KEYS: Record<string, string> = { commands: 'tool.commands', file
 
 const CONVERSATION_ID_STORAGE_KEY = 'eo_conversation_id';
 
+/** Returns existing conversation ID from localStorage, or null if first visit */
+function getExistingConversationId(): string | null {
+  return localStorage.getItem(CONVERSATION_ID_STORAGE_KEY);
+}
+
+/** Returns existing or creates a new conversation ID */
 function getOrCreateConversationId(): string {
-  const cached = localStorage.getItem(CONVERSATION_ID_STORAGE_KEY);
+  const cached = getExistingConversationId();
   if (cached) return cached;
 
   const conversationId = crypto.randomUUID();
@@ -60,6 +66,12 @@ function AppInner() {
   }, [t]);
 
   useEffect(() => {
+    // First visit: no existing conversation → skip history fetch for instant load
+    if (!getExistingConversationId()) {
+      setHistoryLoading(false);
+      return;
+    }
+
     if (_historyFetchInFlight) return;
     _historyFetchInFlight = true;
 
