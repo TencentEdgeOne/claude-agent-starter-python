@@ -22,7 +22,6 @@ Tools:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from typing import Any, AsyncGenerator
@@ -33,20 +32,17 @@ load_dotenv()
 
 try:
     from claude_agent_sdk import (
-        AssistantMessage,
         ClaudeAgentOptions,
-        ResultMessage,
-        StreamEvent,
         create_sdk_mcp_server,
         query,
     )
-    from claude_agent_sdk._errors import ClaudeSDKError
     _SDK_AVAILABLE = True
 except ImportError:
     _SDK_AVAILABLE = False
 
 from .._model import collect_gateway_env, resolve_model_name
 from .._logger import create_logger
+from ._stream import StreamState, iter_query_messages, sdk_message_to_sse, sse_event
 
 
 logger = create_logger("chat")
@@ -69,13 +65,6 @@ SYSTEM_PROMPT = (
 )
 
 
-def _extract_tool_name(raw_name: str) -> str:
-    """Extract short name from MCP tool full name (e.g. mcp__edgeone__commands → commands)."""
-    if "__" in raw_name:
-        return raw_name.split("__")[-1]
-    return raw_name
-
-
 def build_agent_options(
     session_store=None,
     mcp_server=None,
@@ -89,7 +78,7 @@ def build_agent_options(
         cwd=os.getcwd(),
         tools=[],
         allowed_tools=list(set((allowed_tools or []))),
-        setting_sources=["user", "project"],
+        setting_sources=["project"],
         skills="all",
         permission_mode="bypassPermissions",
         max_turns=10,
@@ -101,11 +90,6 @@ def build_agent_options(
     if mcp_server is not None:
         opts.mcp_servers = {mcp_server_name: mcp_server}
     return opts
-
-
-def sse_event(event: str, data: dict) -> str:
-    """Format a single SSE event."""
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 async def handler(ctx: Any) -> AsyncGenerator[str, None]:
@@ -158,8 +142,7 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     )
 
     stopped = False
-    full_assistant_text = ""
-    sent_text_len_by_block: dict[int, int] = {}
+    stream_state = StreamState()
 
     # Emit skills config event before query starts
     yield sse_event("skills_loaded", {
@@ -168,134 +151,31 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     })
 
     try:
-        q = query(prompt=user_message, options=options)
-        response_iter = q.__aiter__()
-        cancel_task = asyncio.create_task(cancel_signal.wait())
-        pending: asyncio.Task[Any] | None = None
+        response_iter = query(prompt=user_message, options=options).__aiter__()
+        async for item_type, msg in iter_query_messages(response_iter, cancel_signal, HEARTBEAT_INTERVAL_S):
+            if item_type == "cancelled":
+                stopped = True
+                break
+            if item_type == "finished":
+                break
+            if item_type == "ping":
+                yield sse_event("ping", {"ts": int(time.time() * 1000)})
+                continue
 
-        try:
-            while True:
-                if pending is None:
-                    pending = asyncio.create_task(response_iter.__anext__())
-
-                done, _ = await asyncio.wait(
-                    {pending, cancel_task},
-                    timeout=HEARTBEAT_INTERVAL_S,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                if cancel_task in done:
-                    stopped = True
-                    break
-
-                if not done:
-                    yield sse_event("ping", {"ts": int(time.time() * 1000)})
-                    continue
-
-                try:
-                    msg = pending.result()
-                except StopAsyncIteration:
-                    break
-                pending = None
-
-                # ── Handle StreamEvent (real-time Anthropic API stream events) ──
-                if isinstance(msg, StreamEvent):
-                    event = msg.event
-                    event_type = event.get("type", "")
-
-                    if event_type == "content_block_delta":
-                        delta = event.get("delta", {})
-                        delta_type = delta.get("type", "")
-                        if delta_type == "text_delta":
-                            text = delta.get("text", "")
-                            if text:
-                                full_assistant_text += text
-                                yield sse_event("text_delta", {"delta": text})
-
-                    elif event_type == "content_block_start":
-                        block = event.get("content_block", {})
-                        if block.get("type") == "tool_use":
-                            tool_name = _extract_tool_name(block.get("name", ""))
-                            if tool_name:
-                                yield sse_event("tool_called", {"tool": tool_name})
-
-                # ── Handle AssistantMessage (accumulated complete/partial messages) ──
-                elif isinstance(msg, AssistantMessage):
-                    content = getattr(msg, "content", None)
-
-                    # Check for errors
-                    error = getattr(msg, "error", None)
-                    if error:
-                        err_text = ""
-                        if isinstance(content, list):
-                            for block in content:
-                                t = getattr(block, "text", None)
-                                if t:
-                                    err_text = t
-                                    break
-                        yield sse_event("error", {"message": err_text or str(error)})
-                        break
-
-                    if isinstance(content, list):
-                        for idx, block in enumerate(content):
-                            block_type = getattr(block, "type", None)
-                            block_class = type(block).__name__
-
-                            # Text content
-                            if block_type == "text" or (block_type is None and "TextBlock" in block_class):
-                                full_text = getattr(block, "text", "") or ""
-                                already_sent = sent_text_len_by_block.get(idx, 0)
-                                if len(full_text) > already_sent:
-                                    delta = full_text[already_sent:]
-                                    sent_text_len_by_block[idx] = len(full_text)
-                                    full_assistant_text = full_text
-                                    yield sse_event("text_delta", {"delta": delta})
-
-                            # Thinking blocks — skip, not sent to frontend
-                            elif block_type == "thinking" or (block_type is None and "ThinkingBlock" in block_class):
-                                pass
-
-                            elif block_type == "redacted_thinking" or (block_type is None and "RedactedThinking" in block_class):
-                                pass
-
-                            # Tool use
-                            elif block_type == "tool_use":
-                                tool_name = _extract_tool_name(getattr(block, "name", "") or "")
-                                if tool_name:
-                                    yield sse_event("tool_called", {"tool": tool_name})
-
-                            # Tool result — no action needed on frontend
-                            elif block_type == "tool_result":
-                                pass
-
-                elif isinstance(msg, ResultMessage):
-                    break
-
-        finally:
-            if pending is not None and not pending.done():
-                pending.cancel()
-                try:
-                    await pending
-                except BaseException:
-                    pass
-            if not cancel_task.done():
-                cancel_task.cancel()
-                try:
-                    await cancel_task
-                except BaseException:
-                    pass
-            aclose = getattr(response_iter, "aclose", None)
-            if callable(aclose):
-                await aclose()
+            events, should_stop = sdk_message_to_sse(msg, stream_state)
+            for event in events:
+                yield event
+            if should_stop:
+                break
 
     except Exception as e:  # noqa: BLE001
         logger.error(f"[error] {e}")
         yield sse_event("error", {"message": str(e)})
 
     # Save assistant response
-    if store_adapter and cid and full_assistant_text.strip():
+    if store_adapter and cid and stream_state.full_assistant_text.strip():
         try:
-            await store_adapter.append_message(cid, "assistant", full_assistant_text)
+            await store_adapter.append_message(cid, "assistant", stream_state.full_assistant_text)
         except Exception as e:
             logger.error(f"[store] failed to save assistant response: {e}")
 
