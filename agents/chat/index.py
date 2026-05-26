@@ -68,6 +68,13 @@ SYSTEM_PROMPT = (
 )
 
 
+REGISTERED_SKILLS = [
+    {"name": "code-review", "description": "Review code for quality, bugs, performance issues, and best practices."},
+    {"name": "api-docs-generator", "description": "Generate API documentation from source code."},
+    {"name": "test-writer", "description": "Write unit tests and integration tests for code."},
+]
+
+
 def _extract_tool_name(raw_name: str) -> str:
     """Extract short name from MCP tool full name (e.g. mcp__edgeone__commands → commands)."""
     if "__" in raw_name:
@@ -158,6 +165,13 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     stopped = False
     full_assistant_text = ""
     sent_text_len_by_block: dict[int, int] = {}
+
+    # Emit skills discovery event before query starts
+    yield sse_event("skills_loaded", {
+        "count": len(REGISTERED_SKILLS),
+        "skills": REGISTERED_SKILLS,
+        "setting_sources": ["project"],
+    })
 
     try:
         q = query(prompt=user_message, options=options)
