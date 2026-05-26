@@ -68,13 +68,6 @@ SYSTEM_PROMPT = (
 )
 
 
-REGISTERED_SKILLS = [
-    {"name": "code-review", "description": "Review code for quality, bugs, performance issues, and best practices."},
-    {"name": "api-docs-generator", "description": "Generate API documentation from source code."},
-    {"name": "test-writer", "description": "Write unit tests and integration tests for code."},
-]
-
-
 def _extract_tool_name(raw_name: str) -> str:
     """Extract short name from MCP tool full name (e.g. mcp__edgeone__commands → commands)."""
     if "__" in raw_name:
@@ -95,6 +88,7 @@ def build_agent_options(
         tools=[],
         allowed_tools=list(set((allowed_tools or []) + ["Read", "Write", "Bash"])),
         setting_sources=["project"],
+        skills="all",
         add_dirs=[],
         permission_mode="bypassPermissions",
         max_turns=10,
@@ -166,10 +160,9 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     full_assistant_text = ""
     sent_text_len_by_block: dict[int, int] = {}
 
-    # Emit skills discovery event before query starts
+    # Emit skills config event before query starts
     yield sse_event("skills_loaded", {
-        "count": len(REGISTERED_SKILLS),
-        "skills": REGISTERED_SKILLS,
+        "skills": "all",
         "setting_sources": ["project"],
     })
 
