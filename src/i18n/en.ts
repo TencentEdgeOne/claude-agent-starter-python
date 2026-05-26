@@ -17,8 +17,6 @@ const en = {
   "preset.2": "Create /tmp/hello.txt with content \"Hello EdgeOne\", then read it back.",
   "preset.3": "Use Python to calculate and print the first 10 Fibonacci numbers.",
   "preset.4": "Visit https://edgeone.ai and summarize the page content.",
-  "preset.5": "Review the chat handler code for potential issues",
-  "preset.6": "Generate API documentation for all endpoints",
 
   // Tool indicators
   "tool.commands": "Commands",
