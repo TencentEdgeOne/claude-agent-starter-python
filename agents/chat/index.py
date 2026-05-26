@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from typing import Any, AsyncGenerator
 
@@ -85,11 +86,11 @@ def build_agent_options(
     opts = ClaudeAgentOptions(
         model=resolve_model_name(),
         system_prompt=SYSTEM_PROMPT,
+        cwd=os.getcwd(),
         tools=[],
         allowed_tools=list(set((allowed_tools or []) + ["Read", "Write", "Bash"])),
-        setting_sources=["project"],
+        setting_sources=["user", "project"],
         skills="all",
-        add_dirs=[],
         permission_mode="bypassPermissions",
         max_turns=10,
         env=collect_gateway_env(),
