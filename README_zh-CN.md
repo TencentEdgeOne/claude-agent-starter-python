@@ -97,6 +97,9 @@ event: done           data: {"stopped":false}
 # 安装前端依赖
 npm install
 
+# 安装后端 Python 依赖
+pip install -r requirements.txt
+
 # 启动 EdgeOne 本地开发（前后端同时启动）
 edgeone pages dev
 ```

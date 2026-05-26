@@ -97,6 +97,9 @@ event: done           data: {"stopped":false}
 # Install frontend dependencies
 npm install
 
+# Install backend Python dependencies
+pip install -r requirements.txt
+
 # Start EdgeOne local dev (frontend + backend)
 edgeone pages dev
 ```
