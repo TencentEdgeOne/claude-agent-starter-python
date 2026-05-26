@@ -88,7 +88,7 @@ def build_agent_options(
         system_prompt=SYSTEM_PROMPT,
         cwd=os.getcwd(),
         tools=[],
-        allowed_tools=list(set((allowed_tools or []) + ["Read", "Write", "Bash"])),
+        allowed_tools=list(set((allowed_tools or []))),
         setting_sources=["user", "project"],
         skills="all",
         permission_mode="bypassPermissions",
