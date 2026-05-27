@@ -14,15 +14,25 @@ const en = {
 
   // Preset questions
   "preset.1": "Use terminal commands to check the current system time and OS version.",
-  "preset.2": "Create /tmp/hello.txt with content \"Hello EdgeOne\", then read it back.",
-  "preset.3": "Use Python to calculate and print the first 10 Fibonacci numbers.",
+  "preset.2": "Create /tmp/fib.py, write Python code to calculate the first 10 Fibonacci numbers, execute it, and print the result.",
   "preset.4": "Visit https://edgeone.ai and summarize the page content.",
+  "preset.skill.smartTranslator": "Use smart-translator skill to translate into Chinese: EdgeOne Pages Agent helps developers quickly build AI Agent apps.",
 
   // Tool indicators
   "tool.commands": "Commands",
   "tool.files": "Files",
   "tool.codeRunner": "Code Runner",
   "tool.browser": "Browser",
+
+  // Skill indicators
+  "skill.smartTranslator": "Smart Translator",
+
+  // Debug panel
+  "debug.title": "SSE Debug",
+  "debug.events": "events",
+  "debug.clear": "Clear",
+  "debug.empty": "Waiting for SSE events...",
+  "debug.emptyHint": "After sending a message, all raw backend data will be displayed here.",
 
   // Status & errors
   "status.error": "Request failed. Please check if the backend service is running.",
