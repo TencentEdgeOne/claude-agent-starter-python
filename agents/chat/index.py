@@ -7,6 +7,7 @@ Response: SSE stream (text/event-stream)
 SSE event protocol:
   event: text_delta  data: {"delta": "..."}
   event: tool_called data: {"tool": "ToolName"}
+  event: image       data: {"imageId": "...", "base64": "...", "mimeType": "...", "size": ...}
   event: ping        data: {"ts": 1710000000000}
   event: error       data: {"message": "..."}
   event: done        data: {"stopped": false}
@@ -50,7 +51,7 @@ HEARTBEAT_INTERVAL_S = 5
 MCP_SERVER_NAME = "edgeone"
 
 SYSTEM_PROMPT = (
-    "You are a helpful assistant running inside an EdgeOne sandbox environment.\n"
+    "You are a helpful assistant running inside an EdgeOne environment.\n"
     "You have access to these EdgeOne platform tools:\n"
     "- commands: execute shell commands in the sandbox (e.g. date, ls, uname).\n"
     "- files: file operations in the sandbox — read, write, list, makeDir, exists, remove.\n"
@@ -103,6 +104,10 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         yield sse_event("done", {"stopped": False})
         return
 
+    # Extract frontend-generated message IDs for history alignment
+    user_msg_id: str = body.get("userMsgId", "") if isinstance(body, dict) else ""
+    bot_msg_id: str = body.get("botMsgId", "") if isinstance(body, dict) else ""
+
     if not _SDK_AVAILABLE:
         yield sse_event("error", {"message": "claude_agent_sdk is not installed"})
         yield sse_event("done", {"stopped": False})
@@ -114,10 +119,19 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     # Session store (enable when ready)
     session_store = None
 
-    # Save user message
+    # Save user message (with frontend-generated ID if available)
     if store_adapter and cid:
         try:
-            await store_adapter.append_message(cid, "user", user_message)
+            if user_msg_id:
+                await store_adapter.append_message(cid, "user", user_message, message_id=user_msg_id)
+            else:
+                await store_adapter.append_message(cid, "user", user_message)
+        except TypeError:
+            # Fallback if store doesn't support message_id parameter
+            try:
+                await store_adapter.append_message(cid, "user", user_message)
+            except Exception as e:
+                logger.error(f"[store] failed to save user message: {e}")
         except Exception as e:
             logger.error(f"[store] failed to save user message: {e}")
 
@@ -129,6 +143,18 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         return
 
     edgeone_mcp = raw_tools.to_claude_mcp_server(MCP_SERVER_NAME, {"always_load": True})
+    logger.log("[tool_debug][mcp_server]", {
+        "name": getattr(edgeone_mcp, "name", None),
+        "allowed_tools": getattr(edgeone_mcp, "allowed_tools", None),
+        "tools": [
+            {
+                "name": getattr(tool, "name", None) if not isinstance(tool, dict) else tool.get("name"),
+                "description": getattr(tool, "description", None) if not isinstance(tool, dict) else tool.get("description"),
+                "input_schema": getattr(tool, "input_schema", None) if not isinstance(tool, dict) else tool.get("input_schema"),
+            }
+            for tool in (getattr(edgeone_mcp, "tools", None) or [])
+        ],
+    })
     mcp_server = create_sdk_mcp_server(
         name=edgeone_mcp.name,
         tools=edgeone_mcp.tools,
@@ -142,7 +168,7 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     )
 
     stopped = False
-    stream_state = StreamState()
+    stream_state = StreamState(bot_msg_id=bot_msg_id)
 
     # Emit skills config event before query starts
     yield sse_event("skills_loaded", {
@@ -162,7 +188,7 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
                 yield sse_event("ping", {"ts": int(time.time() * 1000)})
                 continue
 
-            events, should_stop = sdk_message_to_sse(msg, stream_state)
+            events, should_stop = sdk_message_to_sse(msg, stream_state, logger)
             for event in events:
                 yield event
             if should_stop:
@@ -172,10 +198,24 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         logger.error(f"[error] {e}")
         yield sse_event("error", {"message": str(e)})
 
-    # Save assistant response
-    if store_adapter and cid and stream_state.full_assistant_text.strip():
+    # Save assistant response (with frontend-generated ID if available)
+    # Save even if text is empty but images were sent (use placeholder)
+    assistant_content = stream_state.full_assistant_text.strip()
+    if not assistant_content and stream_state.has_images:
+        assistant_content = "[image]"
+
+    if store_adapter and cid and assistant_content:
         try:
-            await store_adapter.append_message(cid, "assistant", stream_state.full_assistant_text)
+            if bot_msg_id:
+                await store_adapter.append_message(cid, "assistant", assistant_content, message_id=bot_msg_id)
+            else:
+                await store_adapter.append_message(cid, "assistant", assistant_content)
+        except TypeError:
+            # Fallback if store doesn't support message_id parameter
+            try:
+                await store_adapter.append_message(cid, "assistant", assistant_content)
+            except Exception as e:
+                logger.error(f"[store] failed to save assistant response: {e}")
         except Exception as e:
             logger.error(f"[store] failed to save assistant response: {e}")
 

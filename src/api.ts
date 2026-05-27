@@ -9,7 +9,7 @@
  * 本文件集中定义所有路径 + 请求封装，方便以后扩展子路由。
  */
 
-import type { Message } from './types';
+import type { Message, ImageSsePayload } from './types';
 
 export const API = {
   chat: '/chat',
@@ -20,6 +20,7 @@ export const API = {
 export interface StreamCallbacks {
   onTextDelta: (delta: string) => void;
   onToolCalled: (toolName: string) => void;
+  onImage: (payload: ImageSsePayload) => void;
   onDone: () => void;
   onError: (err: Error) => void;
 }
@@ -56,7 +57,7 @@ export async function fetchConversationHistory(conversationId: string): Promise<
 
 /**
  * 通过 SSE 流式调用 POST /chat
- * 后端推送事件：text_delta / tool_called / ping / done / error
+ * 后端推送事件：text_delta / tool_called / image / ping / done / error
  *
  * 返回一个 AbortController，调用方可用它中断请求（或配合 /stop 端点优雅中止）。
  */
@@ -64,6 +65,8 @@ export function sendMessageStream(
   message: string,
   callbacks: StreamCallbacks,
   conversationId?: string,
+  userMsgId?: string,
+  botMsgId?: string,
 ): AbortController {
   const ctrl = new AbortController();
 
@@ -79,7 +82,7 @@ export function sendMessageStream(
       const res = await fetch(API.chat, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, userMsgId, botMsgId }),
         signal: ctrl.signal,
       });
 
@@ -152,6 +155,16 @@ function dispatchSseChunk(part: string, cb: StreamCallbacks, markDone: () => voi
         break;
       case 'tool_called':
         cb.onToolCalled(parsed.tool);
+        break;
+      case 'image':
+        if (parsed.base64) {
+          cb.onImage({
+            imageId: parsed.imageId || crypto.randomUUID(),
+            base64: parsed.base64,
+            mimeType: parsed.mimeType || 'image/png',
+            size: parsed.size || 0,
+          });
+        }
         break;
       case 'error':
         cb.onError(new Error(parsed.message || 'agent returned error'));

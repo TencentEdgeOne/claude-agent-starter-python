@@ -59,13 +59,16 @@ async def handler(context: Any):
             continue
 
         content = _content_to_text(getattr(item, "content", ""))
-        if not content:
+
+        # Don't skip messages with [image] placeholder or empty content for assistant
+        # This ensures image-only responses are represented in history
+        if not content and role == "user":
             continue
 
         messages.append({
             "id": getattr(item, "message_id", None) or f"{role}-{getattr(item, 'created_at', 0)}",
             "role": role,
-            "content": content,
+            "content": content or "",
             "timestamp": getattr(item, "created_at", None) or 0,
         })
 

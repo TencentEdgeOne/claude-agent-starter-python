@@ -1,6 +1,6 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Message } from '../types';
+import type { Message, ImageAttachment } from '../types';
 import styles from './ChatBubble.module.css';
 
 interface Props {
@@ -50,11 +50,19 @@ function normalizeMarkdown(content: string): string {
     .join('\n');
 }
 
+/** Get renderable image src from ImageAttachment or legacy base64 string */
+function getImageSrc(img: ImageAttachment | string): string {
+  if (typeof img === 'string') return `data:image/png;base64,${img}`;
+  return img.url || '';
+}
+
 export default function ChatBubble({ message }: Props) {
   const isUser = message.role === 'user';
   const content = isUser ? message.content : normalizeMarkdown(message.content);
+  const hasImages = message.images && message.images.length > 0;
 
-  if (!isUser && !message.content) return null;
+  // Don't render empty assistant messages (unless they have images)
+  if (!isUser && !message.content && !hasImages) return null;
 
   return (
     <div className={`${styles.row} ${isUser ? styles.userRow : styles.botRow}`}>
@@ -62,7 +70,39 @@ export default function ChatBubble({ message }: Props) {
       <div className={`${styles.bubble} ${isUser ? styles.userBubble : styles.botBubble}`}>
         {isUser
           ? content
-          : <div className={styles.markdown}><Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown></div>
+          : (
+            <>
+              {message.content && (
+                <div className={styles.markdown}>
+                  <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+                </div>
+              )}
+              {hasImages && (
+                <div className={styles.imageGrid}>
+                  {message.images!.map((img, idx) => {
+                    const src = getImageSrc(img);
+                    if (!src) return null;
+                    return (
+                      <a
+                        key={typeof img === 'string' ? idx : img.id}
+                        href={src}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.imageLink}
+                      >
+                        <img
+                          src={src}
+                          alt={`Screenshot ${idx + 1}`}
+                          className={styles.screenshot}
+                          loading="lazy"
+                        />
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )
         }
         <span className={styles.time}>
           {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}

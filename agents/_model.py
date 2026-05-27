@@ -14,7 +14,7 @@ except Exception:
     pass
 
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL") or os.environ.get("AI_GATEWAY_MODEL") or "@Pages/hy3-preview"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL") or os.environ.get("AI_GATEWAY_MODEL") or "@makers/hy3-preview"
 
 
 def collect_gateway_env() -> dict[str, str]:
