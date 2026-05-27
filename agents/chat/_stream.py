@@ -17,6 +17,16 @@ except ImportError:  # Keep this module importable when SDK is missing.
     StreamEvent = None  # type: ignore[assignment]
 
 
+# Project skills configuration
+PROJECT_SKILLS = [
+    {
+        "name": "smart-translator",
+        "label": "智能翻译",
+        "description": "Translate text between Chinese and English while preserving tone, formatting, terminology, and Markdown structure.",
+    }
+]
+
+
 # Regex to match base64Image fields in JSON strings (for redaction)
 _BASE64_IMAGE_RE = re.compile(
     r'"base64Image"\s*:\s*"[A-Za-z0-9+/=]{100,}"'
@@ -88,6 +98,14 @@ def _is_block_type(block: Any, block_type: str, class_hint: str) -> bool:
     """Check block type while supporting SDK objects that only expose class names."""
     actual_type = getattr(block, "type", None)
     return actual_type == block_type or (actual_type is None and class_hint in type(block).__name__)
+
+
+def _extract_skill_name_from_tool_input(tool_input: Any) -> str | None:
+    """Extract skill name from a load_skill tool invocation input."""
+    if isinstance(tool_input, dict):
+        value = tool_input.get("skill") or tool_input.get("name") or tool_input.get("skillName")
+        return value if isinstance(value, str) else None
+    return None
 
 
 def _first_text_from_content(content: Any) -> str:
@@ -192,15 +210,25 @@ def _handle_stream_event(msg: Any, state: StreamState, debug_logger: Any = None)
         block = event.get("content_block", {})
         if block.get("type") == "tool_use":
             tool_name = _extract_tool_name(block.get("name", ""))
+            raw_name = block.get("name", "")
+            tool_input = block.get("input")
             _log_tool_debug(debug_logger, "stream_tool_start", {
                 "id": block.get("id"),
                 "name": tool_name,
-                "raw_name": block.get("name"),
-                "input": block.get("input"),
+                "raw_name": raw_name,
+                "input": tool_input,
                 "index": event.get("index"),
             })
             if tool_name:
                 events.append(sse_event("tool_called", {"tool": tool_name}))
+            # Detect load_skill invocation
+            if tool_name == "load_skill" or "load_skill" in raw_name:
+                skill_name = _extract_skill_name_from_tool_input(tool_input)
+                if skill_name:
+                    events.append(sse_event("skill_loaded", {
+                        "name": skill_name,
+                        "status": "loaded",
+                    }))
 
     elif event_type == "content_block_stop":
         _log_tool_debug(debug_logger, "stream_block_stop", {"index": event.get("index")})
@@ -232,15 +260,25 @@ def _handle_assistant_message(msg: Any, state: StreamState, debug_logger: Any = 
 
         elif _is_block_type(block, "tool_use", "ToolUse"):
             tool_name = _extract_tool_name(getattr(block, "name", "") or "")
+            raw_name = getattr(block, "name", "") or ""
             tool_id = getattr(block, "id", None)
+            tool_input = getattr(block, "input", None)
             _log_once(state, f"tool_use:{tool_id or idx}", debug_logger, "assistant_tool_use", {
                 "id": tool_id,
                 "name": tool_name,
-                "raw_name": getattr(block, "name", "") or "",
-                "input": getattr(block, "input", None),
+                "raw_name": raw_name,
+                "input": tool_input,
             })
             if tool_name:
                 events.append(sse_event("tool_called", {"tool": tool_name}))
+            # Detect load_skill invocation
+            if tool_name == "load_skill" or "load_skill" in raw_name:
+                skill_name = _extract_skill_name_from_tool_input(tool_input)
+                if skill_name:
+                    events.append(sse_event("skill_loaded", {
+                        "name": skill_name,
+                        "status": "loaded",
+                    }))
 
         elif _is_block_type(block, "tool_result", "ToolResult"):
             tool_use_id = getattr(block, "tool_use_id", None)
@@ -337,4 +375,8 @@ async def iter_query_messages(
                 pass
         aclose = getattr(response_iter, "aclose", None)
         if callable(aclose):
-            await aclose()
+            try:
+                await aclose()
+            except (AttributeError, RuntimeError):
+                # Suppress platform tracing errors (e.g. _RootChildrenTracker missing _on_ending)
+                pass

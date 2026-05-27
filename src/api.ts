@@ -17,12 +17,33 @@ export const API = {
   history: '/history',
 } as const;
 
+export interface RawSseEvent {
+  eventType: string;
+  data: unknown;
+  raw: string;
+  timestamp: number;
+}
+
+export interface SkillInfo {
+  name: string;
+  label?: string;
+  description?: string;
+}
+
+export interface SkillLoadedPayload {
+  name: string;
+  status: 'loaded';
+}
+
 export interface StreamCallbacks {
   onTextDelta: (delta: string) => void;
   onToolCalled: (toolName: string) => void;
   onImage: (payload: ImageSsePayload) => void;
+  onSkillAvailable?: (skills: SkillInfo[]) => void;
+  onSkillLoaded?: (payload: SkillLoadedPayload) => void;
   onDone: () => void;
   onError: (err: Error) => void;
+  onRawEvent?: (event: RawSseEvent) => void;
 }
 
 /** 获取当前 conversation 的历史消息，用于刷新页面后恢复聊天窗口。 */
@@ -57,7 +78,7 @@ export async function fetchConversationHistory(conversationId: string): Promise<
 
 /**
  * 通过 SSE 流式调用 POST /chat
- * 后端推送事件：text_delta / tool_called / image / ping / done / error
+ * 后端推送事件：text_delta / tool_called / image / skills_loaded / skills_available / skill_loaded / ping / done / error
  *
  * 返回一个 AbortController，调用方可用它中断请求（或配合 /stop 端点优雅中止）。
  */
@@ -149,6 +170,17 @@ function dispatchSseChunk(part: string, cb: StreamCallbacks, markDone: () => voi
 
   try {
     const parsed = JSON.parse(data);
+
+    // Push raw event to debug panel
+    if (cb.onRawEvent) {
+      cb.onRawEvent({
+        eventType,
+        data: parsed,
+        raw: data,
+        timestamp: Date.now(),
+      });
+    }
+
     switch (eventType) {
       case 'text_delta':
         cb.onTextDelta(parsed.delta);
@@ -166,6 +198,12 @@ function dispatchSseChunk(part: string, cb: StreamCallbacks, markDone: () => voi
           });
         }
         break;
+      case 'skills_available':
+        cb.onSkillAvailable?.(parsed.skills || []);
+        break;
+      case 'skill_loaded':
+        cb.onSkillLoaded?.({ name: parsed.name, status: 'loaded' });
+        break;
       case 'error':
         cb.onError(new Error(parsed.message || 'agent returned error'));
         break;
@@ -175,7 +213,15 @@ function dispatchSseChunk(part: string, cb: StreamCallbacks, markDone: () => voi
         break;
     }
   } catch {
-    // 忽略解析失败的事件
+    // Push raw event even on parse failure
+    if (cb.onRawEvent) {
+      cb.onRawEvent({
+        eventType,
+        data: null,
+        raw: data,
+        timestamp: Date.now(),
+      });
+    }
   }
 }
 

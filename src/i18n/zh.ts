@@ -13,16 +13,26 @@ const zh = {
   "chat.hint": "由 Claude Agent SDK + EdgeOne Sandbox 驱动 · 仅供演示",
 
   // Preset questions
-  "preset.1": "用终端命令查看当前系统时间和操作系统版本。",
-  "preset.2": "创建 /tmp/hello.txt 写入 \"Hello EdgeOne\"，然后读取它的内容。",
-  "preset.3": "用 Python 计算斐波那契数列前 10 项并打印出来。",
+  "preset.1": "使用终端命令检查当前系统时间和操作系统版本。",
+  "preset.2": "创建 /tmp/fib.py，写入计算斐波那契数列前 10 项的 Python 代码并执行，将结果打印出来。",
   "preset.4": "访问 https://edgeone.ai 并总结页面内容。",
+  "preset.skill.smartTranslator": "用 smart-translator skill 翻译成英文：EdgeOne Pages Agent 帮助开发者快速构建 AI Agent 应用。",
 
   // Tool indicators
   "tool.commands": "终端命令",
   "tool.files": "文件操作",
   "tool.codeRunner": "代码解释器",
   "tool.browser": "浏览器",
+
+  // Skill indicators
+  "skill.smartTranslator": "智能翻译",
+
+  // Debug panel
+  "debug.title": "SSE 调试",
+  "debug.events": "事件",
+  "debug.clear": "清除",
+  "debug.empty": "等待 SSE 事件...",
+  "debug.emptyHint": "发送消息后，所有原始后端数据将在此处显示。",
 
   // Status & errors
   "status.error": "⚠️ 请求失败，请检查后端服务是否启动。",

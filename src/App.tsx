@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Message, ToolLampState, ImageAttachment, ImageSsePayload } from './types';
 import { fetchConversationHistory, sendMessageStream, stopAgent } from './api';
+import type { RawSseEvent } from './api';
 import { base64ToBlob, saveImage, makeStorageKey, loadConversationImages, deleteConversationImages, createObjectUrl, revokeAllObjectUrls } from './lib/imageStore';
 import { saveSnapshot, loadSnapshot, deleteSnapshot } from './lib/chatUiStore';
 import { I18nProvider, LangToggle, useT, MessageKeys } from './i18n';
@@ -8,6 +9,7 @@ import ToolIndicators from './components/ToolIndicators';
 import ChatWindow from './components/ChatWindow';
 import ChatInput from './components/ChatInput';
 import CodeViewer from './components/CodeViewer';
+import DebugPanel from './components/DebugPanel';
 import styles from './App.module.css';
 
 const LAMP_IDS = ['commands', 'files', 'code_interpreter', 'browser'] as const;
@@ -52,6 +54,9 @@ function AppInner() {
   const [lamps, setLamps]       = useState<ToolLampState[]>(buildLamps);
   const [loading, setLoading]   = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [debugEvents, setDebugEvents] = useState<RawSseEvent[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [rightPanelMode, setRightPanelMode] = useState<'code' | 'debug'>('code');
 
   const botMsgIdRef = useRef<string>('');
   const abortCtrlRef = useRef<AbortController | null>(null);
@@ -224,6 +229,8 @@ function AppInner() {
   const handleSend = useCallback(async (text: string) => {
     // Unlock snapshot saving on first user interaction
     initDoneRef.current = true;
+    // Switch right panel to debug mode
+    setRightPanelMode('debug');
 
     const userMsgId = crypto.randomUUID();
     const botMsgId = crypto.randomUUID();
@@ -270,6 +277,17 @@ function AppInner() {
         handleImageEvent(payload);
       },
 
+      onRawEvent(event) {
+        setRightPanelMode('debug');
+        setDebugEvents(prev => [...prev, event]);
+
+        // Show "skills loading..." indicator briefly when skills are available
+        if (event.eventType === 'skills_available') {
+          setSkillsLoading(true);
+          setTimeout(() => setSkillsLoading(false), 2000);
+        }
+      },
+
       onDone: finishStream,
 
       onError() {
@@ -288,6 +306,11 @@ function AppInner() {
     revokeAllObjectUrls();
     await deleteConversationImages(oldConvId).catch(() => {});
     await deleteSnapshot(oldConvId).catch(() => {});
+
+    // Reset debug panel and right panel mode
+    setDebugEvents([]);
+    setRightPanelMode('code');
+    setSkillsLoading(false);
 
     localStorage.removeItem(CONVERSATION_ID_STORAGE_KEY);
     const newId = crypto.randomUUID();
@@ -337,6 +360,7 @@ function AppInner() {
               </div>
             </div>
             <ToolIndicators lamps={lamps} />
+            {skillsLoading && <span className={styles.skillsLoading}>skills loading...</span>}
           </header>
 
           <ChatWindow messages={messages} loading={loading} />
@@ -344,7 +368,11 @@ function AppInner() {
         </div>
 
         <div className={styles.codePanel}>
-          <CodeViewer />
+          {rightPanelMode === 'code' ? (
+            <CodeViewer />
+          ) : (
+            <DebugPanel events={debugEvents} onClear={() => setDebugEvents([])} />
+          )}
         </div>
       </div>
     </div>

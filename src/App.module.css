@@ -97,7 +97,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden;
+  min-height: 0;
+  overflow: visible;
 }
 
 /* ── Header (inside chat panel) ───────────────────────────── */
@@ -137,4 +138,23 @@
   color: var(--text-muted);
   letter-spacing: .04em;
   margin-top: 2px;
+}
+
+/* ── Skills loading indicator ────────────────────────────── */
+.skillsLoading {
+  font-size: .7rem;
+  font-family: var(--font-mono);
+  color: #4ade80;
+  letter-spacing: .03em;
+  animation: skillsFadeIn 300ms ease-out both, skillsFadeOut 600ms ease-in 1400ms both;
+}
+
+@keyframes skillsFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes skillsFadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }

@@ -43,7 +43,7 @@ except ImportError:
 
 from .._model import collect_gateway_env, resolve_model_name
 from .._logger import create_logger
-from ._stream import StreamState, iter_query_messages, sdk_message_to_sse, sse_event
+from ._stream import StreamState, iter_query_messages, sdk_message_to_sse, sse_event, PROJECT_SKILLS
 
 
 logger = create_logger("chat")
@@ -174,6 +174,11 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     yield sse_event("skills_loaded", {
         "skills": "all",
         "setting_sources": ["project"],
+    })
+
+    # Emit available skills for frontend display
+    yield sse_event("skills_available", {
+        "skills": PROJECT_SKILLS,
     })
 
     try:
