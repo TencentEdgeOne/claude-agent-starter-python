@@ -50,19 +50,47 @@ logger = create_logger("chat")
 HEARTBEAT_INTERVAL_S = 5
 MCP_SERVER_NAME = "edgeone"
 
+# SYSTEM_PROMPT = (
+#     "You are a helpful assistant running inside an EdgeOne environment.\n"
+#     "You have access to these EdgeOne platform tools:\n"
+#     "- commands: execute shell commands in the sandbox (e.g. date, ls, uname).\n"
+#     "- files: file operations in the sandbox — read, write, list, makeDir, exists, remove.\n"
+#     "  Parameters: op (required), path (required for most ops), content (for write).\n"
+#     "- code_interpreter: run code in an isolated interpreter.\n"
+#     "  Parameters: language (e.g. 'python'), code (the source code to execute).\n"
+#     "- browser: interact with web pages — fetch, screenshot, click, type, evaluate.\n"
+#     "  Parameters: op (required), url (for fetch), selector, text, script.\n\n"
+#     "Use tools whenever they help answer the user's question concretely.\n"
+#     "Call tools ONE AT A TIME. Do NOT simulate or fake tool outputs — actually call the tool.\n"
+#     "Do NOT use any tools other than those listed above."
+# )
+
 SYSTEM_PROMPT = (
-    "You are a helpful assistant running inside an EdgeOne environment.\n"
-    "You have access to these EdgeOne platform tools:\n"
-    "- commands: execute shell commands in the sandbox (e.g. date, ls, uname).\n"
-    "- files: file operations in the sandbox — read, write, list, makeDir, exists, remove.\n"
-    "  Parameters: op (required), path (required for most ops), content (for write).\n"
-    "- code_interpreter: run code in an isolated interpreter.\n"
-    "  Parameters: language (e.g. 'python'), code (the source code to execute).\n"
-    "- browser: interact with web pages — fetch, screenshot, click, type, evaluate.\n"
-    "  Parameters: op (required), url (for fetch), selector, text, script.\n\n"
-    "Use tools whenever they help answer the user's question concretely.\n"
-    "Call tools ONE AT A TIME. Do NOT simulate or fake tool outputs — actually call the tool.\n"
-    "Do NOT use any tools other than those listed above."
+  'You are a helpful assistant running inside an EdgeOne sandbox environment.\n' +
+  'You have access to these EdgeOne platform tools:\n' +
+  '- commands: execute shell commands in the sandbox (e.g. date, ls, uname).\n' +
+  '- files: file operations in the sandbox — read, write, list, makeDir, exists, remove.\n' +
+  '  Parameters: op (required), path (required for most ops), content (for write).\n' +
+  '- code_interpreter: run code in an isolated interpreter.\n' +
+  '  Parameters: language (e.g. "python"), code (the source code to execute).\n' +
+  '- browser: interact with web pages — fetch, screenshot, click, type, evaluate.\n' +
+  '  Parameters: op (required), url (for fetch), selector, text, script.\n\n' +
+  'Use tools whenever they help answer the user\'s question concretely.\n' +
+  'Call tools ONE AT A TIME. Do NOT simulate or fake tool outputs — actually call the tool.\n' +
+  'Do NOT use any tools other than those listed above.\n\n' +
+  '## Skills\n\n' +
+  'You have the following skill available:\n\n' +
+  '### smart-translator\n' +
+  'Translate text between Chinese and English while preserving tone, formatting, terminology, and Markdown structure.\n' +
+  'Use this skill when the user asks to translate, localize, or polish bilingual content.\n\n' +
+  'When translating:\n' +
+  '1. Detect the source language automatically.\n' +
+  '2. Translate Chinese to English, or English to Chinese, unless the user specifies another target.\n' +
+  '3. Preserve Markdown, inline code, links, placeholders, and product names.\n' +
+  '4. Keep technical terms accurate and consistent.\n' +
+  '5. Use a clear, professional, and concise tone unless instructed otherwise.\n' +
+  '6. Do not add unrelated explanation.\n' +
+  '7. Return the translation directly. Only add a "Notes" section when there are important terminology or localization decisions.'
 )
 
 
@@ -85,6 +113,7 @@ def build_agent_options(
         max_turns=10,
         env=collect_gateway_env(),
         include_partial_messages=True,
+        max_buffer_size=20 * 1024 * 1024,  # 20MB — enough for browser screenshots
     )
     if session_store is not None:
         opts.session_store = session_store
@@ -116,8 +145,18 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     cancel_signal = getattr(ctx.request, "signal", None) or asyncio.Event()
     store_adapter = getattr(ctx, "store", None)
 
-    # Session store (enable when ready)
-    session_store = None
+    # Get Claude session store for transcript persistence (matches TS reference).
+    # This gives the SDK multi-turn context, preventing chaotic/repeated tool calls.
+    raw_session_store = None
+    if store_adapter and hasattr(store_adapter, "claude_session_store"):
+        try:
+            raw_session_store = store_adapter.claude_session_store()
+            logger.log(f"[session_store] enabled, type={type(raw_session_store).__name__}, value={raw_session_store is not None}")
+        except Exception as e:
+            logger.error(f"[session_store] failed to get claude_session_store: {e}")
+    else:
+        logger.log(f"[session_store] NOT available, store_adapter={type(store_adapter).__name__ if store_adapter else None}, has_method={hasattr(store_adapter, 'claude_session_store') if store_adapter else False}")
+    session_store = raw_session_store
 
     # Save user message (with frontend-generated ID if available)
     if store_adapter and cid:
