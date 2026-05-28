@@ -223,7 +223,7 @@ import { useT, MessageKeys } from '../i18n';
 "preset.1": "使用终端命令检查当前系统时间和操作系统版本。",
 "preset.2": "创建 /tmp/fib.py，写入计算斐波那契数列前 10 项的 Python 代码并执行，将结果打印出来。",
 "preset.4": "访问 https://edgeone.ai 并总结页面内容。",
-"preset.skill.smartTranslator": "用 smart-translator skill 翻译成英文：EdgeOne Pages Agent 帮助开发者快速构建 AI Agent 应用。",
+"preset.skill.smartTranslator": "用 smart-translator skill 翻译成英文：EdgeOne Makers Agent 帮助开发者快速构建 AI Agent 应用。",
 ```
 
 新增 skill 指示文案：
@@ -254,7 +254,7 @@ import { useT, MessageKeys } from '../i18n';
 "preset.1": "Use terminal commands to check the current system time and OS version.",
 "preset.2": "Create /tmp/fib.py, write Python code to calculate the first 10 Fibonacci numbers, execute it, and print the result.",
 "preset.4": "Visit https://edgeone.ai and summarize the page content.",
-"preset.skill.smartTranslator": "Use smart-translator skill to translate into Chinese: EdgeOne Pages Agent helps developers quickly build AI Agent apps.",
+"preset.skill.smartTranslator": "Use smart-translator skill to translate into Chinese: EdgeOne Makers Agent helps developers quickly build AI Agent apps.",
 ```
 
 新增：

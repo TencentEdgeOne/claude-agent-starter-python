@@ -1,5 +1,5 @@
 """
-History handler — EdgeOne Pages Functions
+History handler — EdgeOne Makers
 
 Route: POST /history
 Returns conversation history for frontend chat recovery after page refresh.

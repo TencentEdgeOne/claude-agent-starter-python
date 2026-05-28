@@ -1,5 +1,5 @@
 /**
- * 后端接口（EdgeOne Pages Functions）
+ * 后端接口（EdgeOne Makers）
  *
  * 路由映射规则（文件 → 路由）：
  *   agents/chat/index.ts    → POST /chat          主聊天入口

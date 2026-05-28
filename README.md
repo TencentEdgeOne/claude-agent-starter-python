@@ -1,6 +1,6 @@
 # Claude Agent Starter (Python)
 
-A full-stack EdgeOne Pages Agent template powered by Anthropic Claude Agent SDK (Python). Demonstrates how to build a streaming chat Agent with EdgeOne sandbox tools (via MCP), session memory, and real-time tool indicators.
+A full-stack EdgeOne Makers Agent template powered by Anthropic Claude Agent SDK (Python). Demonstrates how to build a streaming chat Agent with EdgeOne sandbox tools (via MCP), session memory, and real-time tool indicators.
 
 ## Features
 
@@ -14,7 +14,7 @@ A full-stack EdgeOne Pages Agent template powered by Anthropic Claude Agent SDK 
 
 ```text
 claude-agent-starter-python/
-├── agents/                        # Python backend (EdgeOne Pages Functions)
+├── agents/                        # Python backend (EdgeOne Makers)
 │   ├── chat/
 │   │   └── index.py              # POST /chat — SSE streaming chat
 │   ├── history/
@@ -101,5 +101,5 @@ npm install
 pip install -r requirements.txt
 
 # Start EdgeOne local dev (frontend + backend)
-edgeone pages dev
+edgeone makers dev
 ```

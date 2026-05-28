@@ -1,5 +1,5 @@
 """
-Claude Agent SDK chat handler — EdgeOne Pages agent-python format.
+Claude Agent SDK chat handler — EdgeOne Makers agent-python format.
 
 Route: POST /chat
 Response: SSE stream (text/event-stream)
@@ -170,7 +170,7 @@ def build_agent_options(
 
 
 async def handler(ctx: Any) -> AsyncGenerator[str, None]:
-    """EdgeOne Pages Functions entry point (async generator streaming)."""
+    """EdgeOne Makers entry point (async generator streaming)."""
     cid = getattr(ctx, "conversation_id", None) or ""
 
     body = ctx.request.body

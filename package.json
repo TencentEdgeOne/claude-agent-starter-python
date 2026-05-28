@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:agents": "edgeone pages dev",
+    "dev:agents": "edgeone makers dev",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

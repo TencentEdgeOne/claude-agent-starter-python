@@ -1,6 +1,6 @@
 const en = {
   // Header
-  "app.title": "Agent Chat",
+  "app.title": "Claude Agent Starter",
   "app.subtitle": "Running on EdgeOne with sandbox tools, session memory & observability",
 
   // Empty state
@@ -16,7 +16,7 @@ const en = {
   "preset.1": "Use terminal commands to check the current system time and OS version.",
   "preset.2": "Create /tmp/fib.py, write Python code to calculate the first 10 Fibonacci numbers, execute it, and print the result.",
   "preset.4": "Visit https://edgeone.ai and summarize the page content.",
-  "preset.skill.smartTranslator": "Use smart-translator skill to translate into Chinese: EdgeOne Pages Agent helps developers quickly build AI Agent apps.",
+  "preset.skill.smartTranslator": "Use smart-translator skill to translate into Chinese: EdgeOne Makers Agent helps developers quickly build AI Agent apps.",
 
   // Tool indicators
   "tool.commands": "Commands",

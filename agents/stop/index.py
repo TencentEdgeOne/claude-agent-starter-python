@@ -1,5 +1,5 @@
 """
-Stop handler — EdgeOne Pages Functions
+Stop handler — EdgeOne Makers
 
 Route: POST /stop
 Aborts an active agent run by conversation ID.

@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-A full-stack Codex Agent starter project deployed on EdgeOne Pages. The frontend is React + Vite + TypeScript; the backend is Python-based EdgeOne Pages Functions that wrap the Codex Agent SDK with SSE streaming.
+A full-stack Codex Agent starter project deployed on EdgeOne Makers. The frontend is React + Vite + TypeScript; the backend is Python-based EdgeOne Makers that wrap the Codex Agent SDK with SSE streaming.
 
 ## Development Commands
 
@@ -42,7 +42,7 @@ npm install -g @anthropic-ai/Codex
 
 ### Backend (agents/)
 
-Python EdgeOne Pages Functions. File path maps directly to route:
+Python EdgeOne Makers. File path maps directly to route:
 - `agents/chat/index.py` → `POST /chat` — Main SSE streaming chat handler
 - `agents/stop/index.py` → `POST /stop` — Abort active agent run
 - `agents/history/index.py` → `POST /history` — Retrieve conversation history
