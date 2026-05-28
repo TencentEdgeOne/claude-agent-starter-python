@@ -54,7 +54,7 @@ export async function fetchConversationHistory(conversationId: string): Promise<
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'pages-agent-conversation-id': conversationId,
+          'makers-conversation-id': conversationId,
         },
         body: JSON.stringify({}),
       });
@@ -97,7 +97,7 @@ export function sendMessageStream(
         'Content-Type': 'application/json',
       };
       if (conversationId) {
-        headers['pages-agent-conversation-id'] = conversationId;
+        headers['makers-conversation-id'] = conversationId;
       }
 
       const res = await fetch(API.chat, {
