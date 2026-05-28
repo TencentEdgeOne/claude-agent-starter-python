@@ -59,9 +59,9 @@ claude-agent-starter-python/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/chat` | POST | SSE streaming chat. Header: `pages-agent-conversation-id` |
+| `/chat` | POST | SSE streaming chat. Header: `makers-conversation-id` |
 | `/stop` | POST | Abort the active agent run. Body: `{ "conversation_id": "..." }` |
-| `/history` | POST | Get conversation history. Header: `pages-agent-conversation-id` |
+| `/history` | POST | Get conversation history. Header: `makers-conversation-id` |
 
 ### SSE Events
 

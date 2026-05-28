@@ -61,7 +61,7 @@ Private modules (prefixed with `_`, not exposed as routes):
 
 **Cancellation:** Dual mechanism — frontend `AbortController.abort()` stops SSE reading; backend `context.utils.abort_active_run()` actually interrupts the LLM request.
 
-**Conversation ID:** Passed via `pages-agent-conversation-id` header for chat/history. The `/stop` endpoint receives it in the request body (not header) to avoid overwriting the cancel event.
+**Conversation ID:** Passed via `makers-conversation-id` header for chat/history. The `/stop` endpoint receives it in the request body (not header) to avoid overwriting the cancel event.
 
 ## Configuration
 

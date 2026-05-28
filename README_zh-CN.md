@@ -52,16 +52,16 @@ claude-agent-starter-python/
 |------|------|------|
 | `AI_GATEWAY_API_KEY` | 是 | AI 网关 API Key（映射为 `ANTHROPIC_API_KEY` 传给 Claude SDK） |
 | `AI_GATEWAY_BASE_URL` | 是 | AI 网关 Base URL（映射为 `ANTHROPIC_BASE_URL`） |
-| `AI_GATEWAY_MODEL` | 否 | 模型名称（默认 `hy3-preview`） |
+| `AI_GATEWAY_MODEL` | 否 | 模型名称（默认 `@makers/hy3-preview`） |
 | `AI_GATEWAY_SMALL_MODEL` | 否 | 内部 SDK 子调用使用的小模型 |
 
 ## API 接口
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/chat` | POST | SSE 流式聊天，Header 带 `pages-agent-conversation-id` |
+| `/chat` | POST | SSE 流式聊天，Header 带 `makers-conversation-id` |
 | `/stop` | POST | 中断正在执行的 agent，Body 传 `{ "conversation_id": "..." }` |
-| `/history` | POST | 获取对话历史，Header 带 `pages-agent-conversation-id` |
+| `/history` | POST | 获取对话历史，Header 带 `makers-conversation-id` |
 
 ### SSE 事件
 
