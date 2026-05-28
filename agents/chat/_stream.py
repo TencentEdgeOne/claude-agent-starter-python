@@ -1,4 +1,17 @@
-"""Helpers for converting Claude Agent SDK stream messages into frontend SSE events."""
+"""
+Helpers for converting Claude Agent SDK stream messages into frontend SSE events.
+
+Architecture aligned with the TypeScript reference (claude-agent-starter/agents/chat/_stream.ts):
+
+SDK message types → SSE events:
+  StreamEvent (content_block_delta/text_delta)  → text_delta (real-time streaming)
+  AssistantMessage (tool_use blocks)            → tool_called, skill_loaded, debug_block
+  UserMessage (tool_result with base64Image)    → image, debug_msg
+  ResultMessage                                 → signals end of stream
+
+Key principle: text is ONLY emitted via StreamEvent to avoid duplication.
+AssistantMessage text blocks are tracked (sent_text_len_by_block) but NOT re-emitted.
+"""
 
 from __future__ import annotations
 
@@ -42,6 +55,7 @@ class StreamState:
     logged_tool_events: set[str] = field(default_factory=set)
     bot_msg_id: str = ""
     has_images: bool = False
+    last_msg_type: str = ""  # Track message type transitions (like TS lastMsgType)
 
 
 def _redact_base64(text: str) -> str:
@@ -49,13 +63,15 @@ def _redact_base64(text: str) -> str:
     return _BASE64_IMAGE_RE.sub('"base64Image": "[REDACTED image data]"', text)
 
 
-def _safe_json_preview(value: Any, max_length: int = 1200) -> str:
-    """Serialize debug payload safely and truncate very large tool inputs/results."""
+def _safe_json_preview(value: Any, max_length: int = 4000) -> str:
+    """Serialize debug payload safely, redact base64, and truncate."""
     try:
         text = json.dumps(value, ensure_ascii=False, default=str)
     except Exception:
         text = str(value)
-    text = _redact_base64(text)
+    # Fast path: skip regex if no base64Image
+    if "base64Image" in text:
+        text = _redact_base64(text)
     return text if len(text) <= max_length else f"{text[:max_length]}...<truncated>"
 
 
@@ -108,28 +124,18 @@ def _extract_skill_name_from_tool_input(tool_input: Any) -> str | None:
     return None
 
 
-def _first_text_from_content(content: Any) -> str:
-    """Return the first text value from an AssistantMessage content list."""
-    if not isinstance(content, list):
-        return ""
-    for block in content:
-        text = getattr(block, "text", None)
-        if text:
-            return text
-    return ""
-
+# ---------------------------------------------------------------------------
+# Image extraction from tool results (matches TS emitToolResultImages)
+# ---------------------------------------------------------------------------
 
 def _extract_images_from_tool_result(block: Any, state: StreamState) -> list[str]:
     """
     Extract base64Image from tool_result content and return SSE image events.
-
-    Tool results may contain JSON text with a base64Image field (e.g. browser screenshot).
-    We extract the image, emit it as a separate SSE event, and mark state.has_images.
+    Matches TS reference: emitToolResultImages().
     """
     events: list[str] = []
     content = getattr(block, "content", None)
 
-    # content can be a string or a list of content blocks
     texts_to_check: list[str] = []
 
     if isinstance(content, str):
@@ -139,38 +145,31 @@ def _extract_images_from_tool_result(block: Any, state: StreamState) -> list[str
             if isinstance(item, str):
                 texts_to_check.append(item)
             elif isinstance(item, dict):
-                text = item.get("text") or item.get("output") or ""
+                text = item.get("text") or item.get("content") or ""
                 if text:
                     texts_to_check.append(str(text))
             else:
-                # SDK object with text attribute
-                text = getattr(item, "text", None) or getattr(item, "output", None)
+                text = getattr(item, "text", None) or getattr(item, "content", None)
                 if text:
                     texts_to_check.append(str(text))
 
     for text in texts_to_check:
         if "base64Image" not in text:
             continue
-
-        # Try to parse as JSON to extract base64Image
         try:
             parsed = json.loads(text)
-            base64_data = None
-            if isinstance(parsed, dict):
-                base64_data = parsed.get("base64Image")
-            if not base64_data:
-                continue
-
-            image_id = str(uuid.uuid4())
-            events.append(sse_event("image", {
-                "imageId": image_id,
-                "base64": base64_data,
-                "mimeType": "image/png",
-                "size": len(base64_data),
-            }))
-            state.has_images = True
+            if isinstance(parsed, dict) and parsed.get("base64Image"):
+                base64_data = parsed["base64Image"]
+                image_id = str(uuid.uuid4())
+                events.append(sse_event("image", {
+                    "imageId": image_id,
+                    "base64": base64_data,
+                    "mimeType": "image/png",
+                    "size": len(base64_data),
+                }))
+                state.has_images = True
         except (json.JSONDecodeError, TypeError, ValueError):
-            # Try regex extraction as fallback
+            # Regex fallback
             match = re.search(r'"base64Image"\s*:\s*"([A-Za-z0-9+/=]+)"', text)
             if match:
                 base64_data = match.group(1)
@@ -186,8 +185,15 @@ def _extract_images_from_tool_result(block: Any, state: StreamState) -> list[str
     return events
 
 
+# ---------------------------------------------------------------------------
+# StreamEvent handler — real-time text streaming only
+# ---------------------------------------------------------------------------
+
 def _handle_stream_event(msg: Any, state: StreamState, debug_logger: Any = None) -> list[str]:
-    """Convert real-time Anthropic stream events to frontend SSE events."""
+    """
+    Handle StreamEvent: emit text_delta for real-time streaming.
+    Tool events are NOT emitted here (handled by AssistantMessage to avoid duplication).
+    """
     events: list[str] = []
     event = msg.event
     event_type = event.get("type", "")
@@ -200,48 +206,31 @@ def _handle_stream_event(msg: Any, state: StreamState, debug_logger: Any = None)
             if text:
                 state.full_assistant_text += text
                 events.append(sse_event("text_delta", {"delta": text}))
-        elif delta_type == "input_json_delta":
-            _log_tool_debug(debug_logger, "stream_tool_input_delta", {
-                "index": event.get("index"),
-                "partial_json": delta.get("partial_json", ""),
-            })
-
-    elif event_type == "content_block_start":
-        block = event.get("content_block", {})
-        if block.get("type") == "tool_use":
-            tool_name = _extract_tool_name(block.get("name", ""))
-            raw_name = block.get("name", "")
-            tool_input = block.get("input")
-            _log_tool_debug(debug_logger, "stream_tool_start", {
-                "id": block.get("id"),
-                "name": tool_name,
-                "raw_name": raw_name,
-                "input": tool_input,
-                "index": event.get("index"),
-            })
-            if tool_name:
-                events.append(sse_event("tool_called", {"tool": tool_name}))
-            # Detect load_skill invocation
-            if tool_name == "load_skill" or "load_skill" in raw_name:
-                skill_name = _extract_skill_name_from_tool_input(tool_input)
-                if skill_name:
-                    events.append(sse_event("skill_loaded", {
-                        "name": skill_name,
-                        "status": "loaded",
-                    }))
-
-    elif event_type == "content_block_stop":
-        _log_tool_debug(debug_logger, "stream_block_stop", {"index": event.get("index")})
 
     return events
 
 
+# ---------------------------------------------------------------------------
+# AssistantMessage handler — tool_called, skill_loaded, debug_block
+# (text is NOT emitted here — StreamEvent handles it)
+# ---------------------------------------------------------------------------
+
 def _handle_assistant_message(msg: Any, state: StreamState, debug_logger: Any = None) -> tuple[list[str], bool]:
-    """Convert AssistantMessage blocks to SSE events. Returns (events, should_stop)."""
+    """
+    Handle AssistantMessage: emit tool_called, skill_loaded, debug_block.
+    Text blocks are skipped (handled by StreamEvent to avoid duplication).
+    Matches TS reference: emitAssistantBlocks() minus text emission.
+    """
     content = getattr(msg, "content", None)
     error = getattr(msg, "error", None)
     if error:
-        err_text = _first_text_from_content(content)
+        err_text = ""
+        if isinstance(content, list):
+            for block in content:
+                text = getattr(block, "text", None)
+                if text:
+                    err_text = text
+                    break
         return [sse_event("error", {"message": err_text or str(error)})], True
 
     if not isinstance(content, list):
@@ -250,57 +239,176 @@ def _handle_assistant_message(msg: Any, state: StreamState, debug_logger: Any = 
     events: list[str] = []
     for idx, block in enumerate(content):
         if _is_block_type(block, "text", "TextBlock"):
+            # Track text length for full_assistant_text accuracy,
+            # but do NOT emit — StreamEvent handles text_delta.
             full_text = getattr(block, "text", "") or ""
-            already_sent = state.sent_text_len_by_block.get(idx, 0)
-            if len(full_text) > already_sent:
-                delta = full_text[already_sent:]
-                state.sent_text_len_by_block[idx] = len(full_text)
+            state.sent_text_len_by_block[idx] = len(full_text)
+            # Update full_assistant_text from the authoritative snapshot
+            if full_text:
                 state.full_assistant_text = full_text
-                events.append(sse_event("text_delta", {"delta": delta}))
 
         elif _is_block_type(block, "tool_use", "ToolUse"):
             tool_name = _extract_tool_name(getattr(block, "name", "") or "")
             raw_name = getattr(block, "name", "") or ""
             tool_id = getattr(block, "id", None)
             tool_input = getattr(block, "input", None)
-            _log_once(state, f"tool_use:{tool_id or idx}", debug_logger, "assistant_tool_use", {
-                "id": tool_id,
-                "name": tool_name,
-                "raw_name": raw_name,
-                "input": tool_input,
-            })
-            if tool_name:
-                events.append(sse_event("tool_called", {"tool": tool_name}))
-            # Detect load_skill invocation
-            if tool_name == "load_skill" or "load_skill" in raw_name:
-                skill_name = _extract_skill_name_from_tool_input(tool_input)
-                if skill_name:
-                    events.append(sse_event("skill_loaded", {
-                        "name": skill_name,
-                        "status": "loaded",
-                    }))
+
+            # Deduplicate: only emit once per tool_use
+            dedup_key = f"tool_use:{tool_id or idx}"
+            if dedup_key not in state.logged_tool_events:
+                state.logged_tool_events.add(dedup_key)
+
+                _log_tool_debug(debug_logger, "tool_call", {
+                    "id": tool_id,
+                    "name": tool_name,
+                    "raw_name": raw_name,
+                    "input": tool_input,
+                })
+
+                if tool_name:
+                    events.append(sse_event("tool_called", {"tool": tool_name}))
+
+                # Detect skill loading
+                if tool_name == "load_skill" or "load_skill" in raw_name:
+                    skill_name = _extract_skill_name_from_tool_input(tool_input)
+                    if skill_name:
+                        events.append(sse_event("skill_loaded", {
+                            "name": skill_name,
+                            "status": "loaded",
+                        }))
 
         elif _is_block_type(block, "tool_result", "ToolResult"):
-            tool_use_id = getattr(block, "tool_use_id", None)
-            # Extract and emit screenshot images from tool results
+            # Extract images from tool results
             image_events = _extract_images_from_tool_result(block, state)
             events.extend(image_events)
 
-            _log_once(state, f"tool_result:{tool_use_id or idx}", debug_logger, "assistant_tool_result", {
-                "tool_use_id": tool_use_id,
-                "is_error": getattr(block, "is_error", None),
-                "content": _redact_base64(str(getattr(block, "content", None) or "")),
-            })
+        else:
+            # Other block types: emit as debug_block (matches TS reference)
+            block_type = getattr(block, "type", type(block).__name__)
+            dedup_key = f"debug_block:{idx}:{block_type}"
+            if dedup_key not in state.logged_tool_events:
+                state.logged_tool_events.add(dedup_key)
+                events.append(sse_event("debug_block", {
+                    "blockIndex": idx,
+                    "blockType": block_type,
+                    "block": _safe_json_preview(block, 4000),
+                }))
 
     return events, False
 
 
+# ---------------------------------------------------------------------------
+# UserMessage handler — image extraction + debug_msg
+# (matches TS: emitToolResultImages + emitDebugMessage for msg.type === 'user')
+# ---------------------------------------------------------------------------
+
+def _handle_user_message(msg: Any, state: StreamState, debug_logger: Any = None) -> list[str]:
+    """
+    Handle UserMessage (tool_result): extract images and emit debug_msg.
+    Matches TS reference: emitToolResultImages() + emitDebugMessage().
+
+    TS logic:
+      const toolResults = msg.tool_use_result ?? msg.message?.content ?? [];
+      const resultArr = Array.isArray(toolResults) ? toolResults : [toolResults];
+      for (const item of resultArr) {
+        const text = typeof item === 'string' ? item : (item?.text ?? item?.content ?? '');
+        if (text.includes('base64Image')) { ... }
+      }
+    """
+    events: list[str] = []
+
+    # Priority: tool_use_result first (matches TS), then content
+    tool_results = getattr(msg, "tool_use_result", None)
+    if tool_results is None:
+        tool_results = getattr(msg, "content", None)
+
+    # Normalize to list (matches TS: Array.isArray ? x : [x])
+    if tool_results is None:
+        result_arr: list[Any] = []
+    elif isinstance(tool_results, list):
+        result_arr = tool_results
+    else:
+        result_arr = [tool_results]
+
+    for item in result_arr:
+        # Extract text from item (matches TS: item?.text ?? item?.content ?? '')
+        text = ""
+        if isinstance(item, str):
+            text = item
+        elif isinstance(item, dict):
+            text = item.get("text") or item.get("content") or ""
+            # Also check if the dict itself has base64Image directly
+            if not text and "base64Image" in item:
+                base64_data = item.get("base64Image")
+                if isinstance(base64_data, str) and len(base64_data) > 100:
+                    image_id = str(uuid.uuid4())
+                    events.append(sse_event("image", {
+                        "imageId": image_id,
+                        "base64": base64_data,
+                        "mimeType": "image/png",
+                        "size": len(base64_data),
+                    }))
+                    state.has_images = True
+                continue
+        else:
+            text = getattr(item, "text", None) or getattr(item, "content", None) or ""
+
+        if not isinstance(text, str) or "base64Image" not in text:
+            continue
+
+        # Parse JSON to extract base64Image (matches TS: JSON.parse(text))
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and parsed.get("base64Image"):
+                base64_data = parsed["base64Image"]
+                image_id = str(uuid.uuid4())
+                events.append(sse_event("image", {
+                    "imageId": image_id,
+                    "base64": base64_data,
+                    "mimeType": "image/png",
+                    "size": len(base64_data),
+                }))
+                state.has_images = True
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    # Emit debug_msg for observability (matches TS emitDebugMessage)
+    events.append(sse_event("debug_msg", {
+        "msgType": "user",
+        "preview": _safe_json_preview(msg, 4000),
+    }))
+
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Main dispatcher (matches TS: for await (const msg of q) { ... })
+# ---------------------------------------------------------------------------
+
 def sdk_message_to_sse(msg: Any, state: StreamState, debug_logger: Any = None) -> tuple[list[str], bool]:
-    """Convert one Claude SDK message to frontend SSE events. Returns (events, should_stop)."""
+    """
+    Convert one Claude SDK message to frontend SSE events.
+    Returns (events, should_stop).
+
+    Matches TS reference logic:
+      StreamEvent       → text_delta (real-time)
+      AssistantMessage  → tool_called, skill_loaded, debug_block
+      UserMessage       → image, debug_msg
+      ResultMessage     → stop signal
+    """
+    # --- StreamEvent: real-time text streaming ---
     if _is_sdk_message(msg, StreamEvent, "StreamEvent"):
         return _handle_stream_event(msg, state, debug_logger), False
+
+    # --- AssistantMessage: tool_called, skill_loaded, debug_block ---
     if _is_sdk_message(msg, AssistantMessage, "AssistantMessage"):
+        # Reset counters on user→assistant transition (matches TS lastMsgType logic)
+        if state.last_msg_type == "user":
+            state.sent_text_len_by_block.clear()
+        state.last_msg_type = "assistant"
         return _handle_assistant_message(msg, state, debug_logger)
+
+    # --- ResultMessage: end of stream ---
     if _is_sdk_message(msg, ResultMessage, "ResultMessage"):
         _log_tool_debug(debug_logger, "result_message", {
             "subtype": getattr(msg, "subtype", None),
@@ -310,19 +418,22 @@ def sdk_message_to_sse(msg: Any, state: StreamState, debug_logger: Any = None) -
         })
         return [], True
 
-    # Handle UserMessage (tool results from SDK conversation flow)
+    # --- UserMessage: image extraction + debug ---
     if type(msg).__name__ == "UserMessage":
-        content = getattr(msg, "content", None)
-        if isinstance(content, list):
-            for block in content:
-                if _is_block_type(block, "tool_result", "ToolResult"):
-                    image_events = _extract_images_from_tool_result(block, state)
-                    if image_events:
-                        return image_events, False
-        return [], False
+        state.last_msg_type = "user"
+        return _handle_user_message(msg, state, debug_logger), False
 
-    return [], False
+    # --- Unknown message types: emit debug_msg ---
+    msg_type = getattr(msg, "type", type(msg).__name__)
+    return [sse_event("debug_msg", {
+        "msgType": msg_type,
+        "preview": _safe_json_preview(msg, 4000),
+    })], False
 
+
+# ---------------------------------------------------------------------------
+# Async iteration helper (unchanged)
+# ---------------------------------------------------------------------------
 
 async def iter_query_messages(
     response_iter: Any,
