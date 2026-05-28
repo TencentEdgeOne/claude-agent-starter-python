@@ -26,6 +26,7 @@ import asyncio
 import os
 import time
 from typing import Any, AsyncGenerator
+from uuid import UUID
 
 from dotenv import load_dotenv
 
@@ -94,11 +95,55 @@ SYSTEM_PROMPT = (
 )
 
 
+def _normalize_uuid(value: str) -> str | None:
+    """Return canonical UUID string, or None if value is not a valid UUID."""
+    try:
+        return str(UUID(value))
+    except (TypeError, ValueError):
+        return None
+
+
+async def resolve_claude_session_binding(
+    session_store: Any,
+    conversation_id: str,
+) -> tuple[str | None, str | None]:
+    """
+    Bind Claude SDK session to frontend conversation_id.
+
+    First request for a conversation uses session_id=<conversation_id> to create
+    a deterministic SDK session. Later requests use resume=<conversation_id>
+    when that transcript already exists in session_store.
+    """
+    session_id = _normalize_uuid(conversation_id)
+    if not session_id:
+        logger.log(f"[session] skip SDK session binding: invalid conversation_id={conversation_id!r}")
+        return None, None
+
+    if session_store is None or not hasattr(session_store, "load"):
+        return session_id, None
+
+    try:
+        from claude_agent_sdk._internal.sessions import project_key_for_directory
+
+        project_key = project_key_for_directory(os.getcwd())
+        entries = await session_store.load({"project_key": project_key, "session_id": session_id})
+        if entries:
+            logger.log(f"[session] resume Claude SDK session_id={session_id}, entries={len(entries)}")
+            return None, session_id
+        logger.log(f"[session] create Claude SDK session_id={session_id}")
+    except Exception as e:
+        logger.error(f"[session] failed to inspect session_store for resume: {e}")
+
+    return session_id, None
+
+
 def build_agent_options(
     session_store=None,
     mcp_server=None,
     mcp_server_name: str = MCP_SERVER_NAME,
     allowed_tools: list[str] | None = None,
+    session_id: str | None = None,
+    resume: str | None = None,
 ) -> "ClaudeAgentOptions":
     """Build Claude Agent SDK options. Disables built-in tools; tools provided via MCP server."""
     opts = ClaudeAgentOptions(
@@ -114,6 +159,8 @@ def build_agent_options(
         env=collect_gateway_env(),
         include_partial_messages=True,
         max_buffer_size=20 * 1024 * 1024,  # 20MB — enough for browser screenshots
+        session_id=session_id,
+        resume=resume,
     )
     if session_store is not None:
         opts.session_store = session_store
@@ -160,6 +207,21 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
 
     # Save user message (with frontend-generated ID if available)
     if store_adapter and cid:
+        # === DEBUG: dump all store messages for this conversation ===
+        try:
+            all_msgs = await store_adapter.get_messages(cid, limit=100, order="asc")
+            logger.log(f"[debug_store] conversation={cid}, total_messages={len(all_msgs)}")
+            for m in all_msgs:
+                role = getattr(m, "role", "?")
+                msg_id = getattr(m, "message_id", "?")
+                content = getattr(m, "content", "")
+                preview = str(content)[:200] if content else ""
+                created_at = getattr(m, "created_at", 0)
+                logger.log(f"[debug_store]   [{role}] id={msg_id} ts={created_at} content={preview}")
+        except Exception as e:
+            logger.error(f"[debug_store] failed to dump: {e}")
+        # === END DEBUG ===
+
         try:
             if user_msg_id:
                 await store_adapter.append_message(cid, "user", user_message, message_id=user_msg_id)
@@ -199,11 +261,14 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         tools=edgeone_mcp.tools,
     )
 
+    sdk_session_id, sdk_resume = await resolve_claude_session_binding(session_store, cid)
     options = build_agent_options(
         session_store=session_store,
         mcp_server=mcp_server,
         mcp_server_name=edgeone_mcp.name,
         allowed_tools=edgeone_mcp.allowed_tools,
+        session_id=sdk_session_id,
+        resume=sdk_resume,
     )
 
     stopped = False
