@@ -28,7 +28,7 @@ const en = {
   "skill.smartTranslator": "Smart Translator",
 
   // Debug panel
-  "debug.title": "SSE Debug",
+  "debug.title": "Trace",
   "debug.events": "events",
   "debug.clear": "Clear",
   "debug.empty": "Waiting for SSE events...",

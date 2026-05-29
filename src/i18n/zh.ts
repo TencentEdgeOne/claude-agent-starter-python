@@ -28,7 +28,7 @@ const zh = {
   "skill.smartTranslator": "智能翻译",
 
   // Debug panel
-  "debug.title": "SSE 调试",
+  "debug.title": "传输流",
   "debug.events": "事件",
   "debug.clear": "清除",
   "debug.empty": "等待 SSE 事件...",
