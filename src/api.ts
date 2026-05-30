@@ -253,11 +253,8 @@ export async function clearConversationHistory(conversationId?: string): Promise
   try {
     const res = await fetch(API.clearHistory, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'makers-conversation-id': conversationId,
-      },
-      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: conversationId }),
     });
     return res.ok;
   } catch {
