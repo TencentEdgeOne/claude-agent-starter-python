@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Message, ToolLampState, ImageAttachment, ImageSsePayload } from './types';
-import { fetchConversationHistory, sendMessageStream, stopAgent } from './api';
+import { clearConversationHistory, fetchConversationHistory, sendMessageStream, stopAgent } from './api';
 import type { RawSseEvent } from './api';
 import { base64ToBlob, saveImage, makeStorageKey, loadConversationImages, deleteConversationImages, createObjectUrl, revokeAllObjectUrls } from './lib/imageStore';
 import { saveSnapshot, loadSnapshot, deleteSnapshot } from './lib/chatUiStore';
@@ -301,6 +301,13 @@ function AppInner() {
 
   const handleClearHistory = useCallback(async () => {
     const oldConvId = conversationIdRef.current;
+
+    // Clear backend history for the old conversation without blocking local UI reset.
+    clearConversationHistory(oldConvId).then(ok => {
+      if (!ok) {
+        console.warn('[history] backend clear request failed');
+      }
+    });
 
     // Clean up all image-related state
     revokeAllObjectUrls();

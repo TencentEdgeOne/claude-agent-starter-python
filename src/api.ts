@@ -4,7 +4,8 @@
  * 路由映射规则（文件 → 路由）：
  *   agents/chat/index.ts    → POST /chat          主聊天入口
  *   agents/stop/index.ts    → POST /stop          中断正在执行的 agent
- *   agents/history/index.ts → POST /history        获取历史消息
+ *   cloud-functions/history/index.ts → POST /history        获取历史消息
+ *   agents/clear-history/index.py → POST /clear-history  清除历史消息
  *
  * 本文件集中定义所有路径 + 请求封装，方便以后扩展子路由。
  */
@@ -15,6 +16,7 @@ export const API = {
   chat: '/chat',
   chatStop: '/stop',
   history: '/history',
+  clearHistory: '/clear-history',
 } as const;
 
 export interface RawSseEvent {
@@ -54,9 +56,8 @@ export async function fetchConversationHistory(conversationId: string): Promise<
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'makers-conversation-id': conversationId,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ conversation_id: conversationId }),
       });
 
       // 409 = 同 conversation 有活跃请求（React StrictMode 双渲染导致），等一下重试
@@ -238,6 +239,25 @@ export async function stopAgent(conversationId?: string): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversation_id: conversationId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 清除后端 conversation 历史。 */
+export async function clearConversationHistory(conversationId?: string): Promise<boolean> {
+  if (!conversationId) return false;
+
+  try {
+    const res = await fetch(API.clearHistory, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'makers-conversation-id': conversationId,
+      },
+      body: JSON.stringify({}),
     });
     return res.ok;
   } catch {
