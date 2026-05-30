@@ -37,8 +37,13 @@ function openDb(): Promise<IDBDatabase> {
  * - Drop raw base64 strings from images array
  */
 function sanitizeForStorage(messages: Message[]): Message[] {
+  if (!messages.some(msg => msg.activity || (msg.images && msg.images.length > 0))) {
+    return messages;
+  }
+
   return messages.map(msg => {
-    if (!msg.images || msg.images.length === 0) return msg;
+    const { activity: _activity, ...messageWithoutActivity } = msg;
+    if (!msg.images || msg.images.length === 0) return messageWithoutActivity;
 
     const cleanImages = msg.images
       .filter(img => typeof img !== 'string') // Drop legacy base64 strings
@@ -50,7 +55,7 @@ function sanitizeForStorage(messages: Message[]): Message[] {
         return { ...rest, url: '' } as ImageAttachment;
       });
 
-    return { ...msg, images: cleanImages.length > 0 ? cleanImages : undefined };
+    return { ...messageWithoutActivity, images: cleanImages.length > 0 ? cleanImages : undefined };
   });
 }
 

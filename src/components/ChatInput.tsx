@@ -9,7 +9,7 @@ interface Props {
   disabled: boolean;
 }
 
-const PRESET_KEYS = ['preset.1', 'preset.2', 'preset.4', 'preset.skill.smartTranslator'] as const;
+const PRESET_KEYS = ['preset.1', 'preset.2', 'preset.4', 'preset.skill.webSearch'] as const;
 
 export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) {
   const [value, setValue] = useState('');

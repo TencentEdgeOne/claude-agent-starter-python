@@ -33,6 +33,21 @@ function getOrCreateConversationId(): string {
   return conversationId;
 }
 
+function isWebSearchToolEvent(event: RawSseEvent): boolean {
+  if (event.eventType !== 'tool_called' || !event.data || typeof event.data !== 'object') {
+    return false;
+  }
+  const tool = (event.data as { tool?: unknown }).tool;
+  return tool === 'web_search' || tool === 'browser';
+}
+
+function isWebSearchSkillEvent(event: RawSseEvent): boolean {
+  if (event.eventType !== 'skill_loaded' || !event.data || typeof event.data !== 'object') {
+    return false;
+  }
+  return (event.data as { name?: unknown }).name === 'web-search';
+}
+
 // ✅ 模块级去重标记 —— 脱离 React 生命周期，StrictMode 无法干扰
 let _historyFetchInFlight = false;
 
@@ -60,6 +75,7 @@ function AppInner() {
 
   const botMsgIdRef = useRef<string>('');
   const abortCtrlRef = useRef<AbortController | null>(null);
+  const hadExistingConversationIdRef = useRef(getExistingConversationId() !== null);
   const conversationIdRef = useRef<string>(getOrCreateConversationId());
   const initDoneRef = useRef(false);       // Guards snapshot saving during recovery
   const snapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,21 +93,18 @@ function AppInner() {
   // === History Recovery (on mount) ===
   useEffect(() => {
     // First visit: no existing conversation → skip history fetch for instant load
-    if (!getExistingConversationId()) {
+    if (!hadExistingConversationIdRef.current) {
       setHistoryLoading(false);
       return;
     }
 
-    if (_historyFetchInFlight) return;
-    _historyFetchInFlight = true;
-
     const convId = conversationIdRef.current;
+    let restoredFromSnapshot = false;
 
-    Promise.all([
-      fetchConversationHistory(convId),
+    const restoreSnapshot = () => Promise.all([
       loadSnapshot(convId).catch(() => [] as Message[]),
       loadConversationImages(convId).catch(() => []),
-    ]).then(([history, snapshot, storedImages]) => {
+    ]).then(([snapshot, storedImages]) => {
       // Build imageId → URL map from IndexedDB blobs
       const imageUrlMap = new Map<string, { url: string; mimeType: string; size: number; storageKey: string }>();
       for (const record of storedImages) {
@@ -120,26 +133,36 @@ function AppInner() {
         return rebuilt.length > 0 ? rebuilt : undefined;
       }
 
-      let merged: Message[];
       if (snapshot.length > 0) {
         // Snapshot is the authoritative UI source (contains image references)
-        merged = snapshot.map(msg => ({
+        restoredFromSnapshot = true;
+        const merged = snapshot.map(msg => ({
           ...msg,
           images: rebuildImages(msg.images as (ImageAttachment | string)[] | undefined),
         }));
-      } else if (history.length > 0) {
-        // Fallback to backend history (text-only, no images)
-        merged = history;
-      } else {
-        merged = [];
-      }
-
-      if (merged.length > 0) {
         setMessages(merged);
+        setHistoryLoading(false);
       }
-    }).finally(() => {
-      _historyFetchInFlight = false;
-      setHistoryLoading(false);
+    }).catch(() => {});
+
+    // Deduplicate the backend /history call in React StrictMode, but still let
+    // the remounted tree restore local IndexedDB snapshot immediately.
+    if (_historyFetchInFlight) {
+      restoreSnapshot().finally(() => setHistoryLoading(false));
+      return;
+    }
+    _historyFetchInFlight = true;
+
+    restoreSnapshot().finally(() => {
+      fetchConversationHistory(convId).then(history => {
+        if (restoredFromSnapshot || history.length === 0) return;
+        // Fallback to backend history (text-only, no images)
+        setMessages(history);
+        saveSnapshot(convId, history).catch(() => {});
+      }).finally(() => {
+        _historyFetchInFlight = false;
+        setHistoryLoading(false);
+      });
     });
   }, []);
 
@@ -169,6 +192,30 @@ function AppInner() {
           : m
       )
     );
+  }, []);
+
+  const setBotActivity = useCallback((activity: Message['activity']) => {
+    setMessages(prev =>
+      prev.map(m =>
+        m.id === botMsgIdRef.current
+          ? { ...m, activity }
+          : m
+      )
+    );
+  }, []);
+
+  const finishBotActivity = useCallback(() => {
+    setMessages(prev => {
+      let changed = false;
+      const next = prev.map(m => {
+        if (m.id === botMsgIdRef.current && m.activity?.status === 'active') {
+          changed = true;
+          return { ...m, activity: { ...m.activity, status: 'done' as const } };
+        }
+        return m;
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const finishStream = useCallback(() => {
@@ -255,10 +302,15 @@ function AppInner() {
 
     const ctrl = sendMessageStream(text, {
       onTextDelta(delta) {
+        finishBotActivity();
         updateBotMessage(content => content + delta);
       },
 
       onToolCalled(toolName) {
+        if (toolName === 'web_search' || toolName === 'browser') {
+          setBotActivity({ type: 'web_search', label: 'Web searching...', status: 'active' });
+        }
+
         setLamps(prev =>
           prev.map(l =>
             l.id === toolName
@@ -274,30 +326,41 @@ function AppInner() {
       },
 
       onImage(payload) {
+        finishBotActivity();
         handleImageEvent(payload);
       },
 
       onRawEvent(event) {
+        if (isWebSearchSkillEvent(event)) {
+          setBotActivity({ type: 'web_search', label: 'Web searching...', status: 'active' });
+        } else if (!isWebSearchToolEvent(event)) {
+          finishBotActivity();
+        }
+        if (event.eventType === 'text_delta') return;
         setRightPanelMode('debug');
         setDebugEvents(prev => [...prev, event]);
 
-        // Show "skills loading..." indicator briefly when skills are available
-        if (event.eventType === 'skills_available') {
+        // Show loading indicator briefly while project skills are announced/loaded.
+        if (event.eventType === 'skills_available' || event.eventType === 'skill_loaded') {
           setSkillsLoading(true);
           setTimeout(() => setSkillsLoading(false), 2000);
         }
       },
 
-      onDone: finishStream,
+      onDone() {
+        finishBotActivity();
+        finishStream();
+      },
 
       onError() {
+        finishBotActivity();
         updateBotMessage(content => content || t("status.error"));
         finishStream();
       },
     }, conversationIdRef.current, userMsgId, botMsgId);
 
     abortCtrlRef.current = ctrl;
-  }, [updateBotMessage, finishStream, handleImageEvent, t]);
+  }, [updateBotMessage, setBotActivity, finishBotActivity, finishStream, handleImageEvent, t]);
 
   const handleClearHistory = useCallback(async () => {
     const oldConvId = conversationIdRef.current;
@@ -335,6 +398,7 @@ function AppInner() {
     }
 
     // 2. 前端立即显示已中断（乐观 UI，不等后端）
+    finishBotActivity();
     updateBotMessage(content => content ? content + '\n\n' + t("status.stopped") : t("status.stopped"));
     setLoading(false);
 
@@ -344,7 +408,7 @@ function AppInner() {
         updateBotMessage(content => content + '\n\n' + t("status.backendError"));
       }
     });
-  }, [updateBotMessage, t]);
+  }, [finishBotActivity, updateBotMessage, t]);
 
   return (
     <div className={styles.shell}>
@@ -353,11 +417,6 @@ function AppInner() {
 
       <div className={styles.stage}>
         <div className={styles.chatPanel}>
-          {historyLoading && messages.length === 0 && (
-            <div className={styles.historyOverlay}>
-              <div className={styles.historySpinner} />
-            </div>
-          )}
           <header className={styles.header}>
             <div className={styles.headerLeft}>
               <span className={styles.logo}>⬡</span>
@@ -370,7 +429,14 @@ function AppInner() {
             {skillsLoading && <span className={styles.skillsLoading}>skills loading...</span>}
           </header>
 
-          <ChatWindow messages={messages} loading={loading} />
+          <div className={styles.chatWindowShell}>
+            <ChatWindow messages={messages} loading={loading} />
+            {historyLoading && messages.length === 0 && (
+              <div className={styles.historyOverlay}>
+                <div className={styles.historySpinner} />
+              </div>
+            )}
+          </div>
           <ChatInput onSend={handleSend} onStop={handleStop} onClear={handleClearHistory} disabled={loading} />
         </div>
 

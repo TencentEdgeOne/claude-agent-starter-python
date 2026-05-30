@@ -16,7 +16,7 @@ const en = {
   "preset.1": "Use terminal commands to check the current system time and OS version.",
   "preset.2": "Create /tmp/fib.py, write Python code to calculate the first 10 Fibonacci numbers, execute it, and print the result.",
   "preset.4": "Visit https://edgeone.ai and summarize the page content.",
-  "preset.skill.smartTranslator": "Use smart-translator skill to translate into Chinese: EdgeOne Makers Agent helps developers quickly build AI Agent apps.",
+  "preset.skill.webSearch": "Use web search: \"the 5 companies with the highest market capitalization right now\"",
 
   // Tool indicators
   "tool.commands": "Commands",
@@ -25,7 +25,7 @@ const en = {
   "tool.browser": "Browser",
 
   // Skill indicators
-  "skill.smartTranslator": "Smart Translator",
+  "skill.webSearch": "Web Search",
 
   // Debug panel
   "debug.title": "Trace",

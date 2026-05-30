@@ -21,6 +21,11 @@ export interface Message {
   content: string;
   timestamp: number;
   images?: (ImageAttachment | string)[];
+  activity?: {
+    type: 'web_search';
+    label: string;
+    status: 'active' | 'done';
+  };
 }
 
 export interface ToolLampState {

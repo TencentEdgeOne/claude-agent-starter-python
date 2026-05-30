@@ -44,7 +44,7 @@ export default function ChatWindow({ messages, loading }: Props) {
       ))}
 
       {/* 仅当 loading 且助手消息还没有内容流入时才显示等待动画 */}
-      {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].content.length > 0) && (
+      {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (messages[messages.length - 1].content.length > 0 || messages[messages.length - 1].activity)) && (
         <div className={styles.typingRow}>
           <div className={styles.avatar}>⬡</div>
           <div className={styles.typing}>
