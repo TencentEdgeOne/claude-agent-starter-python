@@ -11,8 +11,8 @@
       "isIndex": true
     },
     {
-      "path": "/history",
-      "src": "^/history$",
+      "path": "/clear-history",
+      "src": "^/clear-history$",
       "isIndex": false
     }
   ]
