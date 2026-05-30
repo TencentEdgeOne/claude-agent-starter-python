@@ -24,7 +24,10 @@ def _debug_message(item: Any) -> dict:
 
 async def handler(context: Any):
     """Clear conversation history and log the post-clear state."""
-    cid = getattr(context, "conversation_id", None) or ""
+    body = getattr(context.request, "body", None) or {}
+    cid = ""
+    if isinstance(body, dict):
+        cid = body.get("conversation_id") or body.get("conversationId") or ""
     store = getattr(context, "store", None)
 
     logger.log(f"conversation_id={cid}")

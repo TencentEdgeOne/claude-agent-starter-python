@@ -16,7 +16,8 @@ const en = {
   "preset.1": "Use terminal commands to check the current system time and OS version.",
   "preset.2": "Create /tmp/fib.py, write Python code to calculate the first 10 Fibonacci numbers, execute it, and print the result.",
   "preset.4": "Visit https://edgeone.ai and summarize the page content.",
-  "preset.skill.webSearch": "Use web search: \"the 5 companies with the highest market capitalization right now\"",
+  "preset.screenshotEdgeOne": "Take a screenshot of edgeone.ai.",
+  "preset.skill.sandboxAlgorithms": "Use the sandbox-algorithms skill to calculate the first 20 Fibonacci numbers and return the executed result.",
 
   // Tool indicators
   "tool.commands": "Commands",
@@ -25,7 +26,7 @@ const en = {
   "tool.browser": "Browser",
 
   // Skill indicators
-  "skill.webSearch": "Web Search",
+  "skill.sandboxAlgorithms": "Sandbox Algorithms",
 
   // Debug panel
   "debug.title": "Trace",
