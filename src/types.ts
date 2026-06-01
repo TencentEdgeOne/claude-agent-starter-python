@@ -35,3 +35,31 @@ export interface ToolLampState {
   active: boolean;
   animKey: number;   // 每次点亮时递增，让动画元素重新挂载以复播动画
 }
+
+/**
+ * Lightweight summary of a conversation, returned by /conversations.
+ * Used to render the left sidebar — does NOT contain full message content.
+ */
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  preview?: string;
+  lastMessageAt?: number;
+  createdAt?: number;
+  userId?: string;
+  messageCount?: number;
+}
+
+export interface ListConversationsParams {
+  userId: string;
+  limit?: number;
+  order?: 'asc' | 'desc';
+  after?: string;
+  before?: string;
+}
+
+export interface ListConversationsResponse {
+  conversations: ConversationSummary[];
+  nextCursor?: string;
+  previousCursor?: string;
+}

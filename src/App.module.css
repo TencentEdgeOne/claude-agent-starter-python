@@ -40,12 +40,12 @@
   100% { transform: translate(40px, 30px) scale(1.08); }
 }
 
-/* ── Two-panel stage ─────────────────────────────────────── */
+/* ── Three-panel stage ─────────────────────────────────── */
 .stage {
   position: relative;
   z-index: 1;
   display: flex;
-  width: min(1280px, 97vw);
+  width: min(1440px, 98vw);
   height: min(88vh, 840px);
   border-radius: var(--radius-xl);
   overflow: hidden;
@@ -59,9 +59,9 @@
   to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
-/* ── Left: chat panel ─────────────────────────────────────── */
+/* ── Middle: chat panel ────────────────────────────────── */
 .chatPanel {
-  flex: 0 0 58%;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
@@ -101,12 +101,24 @@
 
 /* ── Right: code panel ────────────────────────────────────── */
 .codePanel {
-  flex: 0 0 42%;
+  flex: 0 0 38%;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: visible;
+}
+
+@media (max-width: 1100px) {
+  .codePanel {
+    flex: 0 0 36%;
+  }
+}
+
+@media (max-width: 900px) {
+  .codePanel {
+    display: none;
+  }
 }
 
 /* ── Header (inside chat panel) ───────────────────────────── */
