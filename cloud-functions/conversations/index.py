@@ -4,13 +4,14 @@ Conversations handler — EdgeOne Makers
 Route: POST /conversations
 
 Lists conversations for the requesting eo-uuid user.
-Calls context.store.list_conversations(user_id=..., limit=..., order=..., after=..., before=...).
+Calls context.agent.store.list_conversations(user_id=..., limit=..., order=..., after=..., before=...).
 Returns: { conversations, next_cursor, previous_cursor }
 
 user_id is REQUIRED — returns 400 without it.
 """
 
 from typing import Any
+import json
 from .._logger import create_logger
 
 logger = create_logger("conversations")
@@ -26,6 +27,19 @@ def _clamp_limit(raw) -> int:
         return max(MIN_LIMIT, min(MAX_LIMIT, v))
     except (TypeError, ValueError):
         return DEFAULT_LIMIT
+
+
+def _serialize_for_log(obj: Any) -> Any:
+    """Best-effort convert SDK objects (or anything) to JSON-friendly form."""
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+    if isinstance(obj, dict):
+        return {k: _serialize_for_log(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_serialize_for_log(v) for v in obj]
+    if hasattr(obj, "__dict__"):
+        return {k: _serialize_for_log(v) for k, v in vars(obj).items() if not k.startswith("_")}
+    return repr(obj)
 
 
 def _normalize_conversation(item: Any) -> dict | None:
@@ -111,7 +125,8 @@ async def handler(context: Any):
             "body": {"status": "error", "message": "user_id is required"},
         }
 
-    store = getattr(context, "store", None)
+    agent = getattr(context, "agent", None)
+    store = getattr(agent, "store", None) if agent is not None else None
 
     lister = (
         getattr(store, "list_conversations", None)
@@ -119,7 +134,7 @@ async def handler(context: Any):
     )
 
     if lister is None or not callable(lister):
-        logger.error("context.store.list_conversations is unavailable")
+        logger.error("context.agent.store.list_conversations is unavailable")
         return {
             "status_code": 501,
             "body": {
@@ -139,6 +154,16 @@ async def handler(context: Any):
 
     try:
         result = await lister(**params)
+
+        # === DEBUG: 打印 store 返回的原始 list_conversations 数据 ===
+        try:
+            raw_dump = _serialize_for_log(result)
+            logger.log(
+                f"[conversations][store_raw] user_id={user_id}, "
+                f"data={json.dumps(raw_dump, ensure_ascii=False, default=str)}"
+            )
+        except Exception as dump_err:
+            logger.error(f"[conversations][store_raw] dump failed: {dump_err}")
 
         # SDK list_conversations 返回 ListConversationsResult 对象，Python 端字段：
         #   result.items          → list[ConversationMeta]
@@ -196,11 +221,23 @@ async def handler(context: Any):
 
         logger.log(f"list_conversations: count={len(conversations)}, has_next={bool(next_cursor)}")
 
-        return {
+        response = {
             "conversations": conversations,
             "nextCursor": next_cursor,
             "previousCursor": previous_cursor,
         }
+
+        # === DEBUG: 打印最终返回给前端的响应 ===
+        try:
+            logger.log(
+                f"[conversations][response] user_id={user_id}, "
+                f"count={len(conversations)}, "
+                f"data={json.dumps(response, ensure_ascii=False, default=str)}"
+            )
+        except Exception as dump_err:
+            logger.error(f"[conversations][response] dump failed: {dump_err}")
+
+        return response
 
     except Exception as e:
         logger.error(f"failed to list conversations: {e}")

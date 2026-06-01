@@ -30,7 +30,8 @@ async def handler(context: Any):
     if isinstance(body, dict):
         cid = body.get("conversation_id") or body.get("conversationId") or ""
         user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
-    store = getattr(context, "store", None)
+    agent = getattr(context, "agent", None)
+    store = getattr(agent, "store", None) if agent is not None else None
 
     logger.log(f"conversation_id={cid}, user_id={user_id or '-'}")
 
@@ -44,7 +45,7 @@ async def handler(context: Any):
         }
 
     if store is None or not hasattr(store, "clear_messages"):
-        logger.error("context.store.clear_messages is unavailable")
+        logger.error("context.agent.store.clear_messages is unavailable")
         return {
             "status_code": 501,
             "body": {
