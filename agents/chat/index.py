@@ -44,7 +44,7 @@ except ImportError:
 
 from .._model import collect_gateway_env, resolve_model_name
 from .._logger import create_logger
-from ._stream import StreamState, iter_query_messages, sdk_message_to_sse, sse_event, PROJECT_SKILLS
+from ._stream import StreamState, iter_query_messages, sdk_message_to_sse, sse_event
 
 
 logger = create_logger("chat")
@@ -254,17 +254,6 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
 
     stopped = False
     stream_state = StreamState(bot_msg_id=bot_msg_id)
-
-    # Emit skills config event before query starts
-    yield sse_event("skills_loaded", {
-        "skills": "all",
-        "setting_sources": ["project"],
-    })
-
-    # Emit available skills for frontend display
-    yield sse_event("skills_available", {
-        "skills": PROJECT_SKILLS,
-    })
 
     try:
         response_iter = query(prompt=user_message, options=options).__aiter__()
