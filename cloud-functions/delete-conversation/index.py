@@ -4,7 +4,7 @@ Delete-conversation handler — EdgeOne Makers
 Route: POST /delete-conversation
 
 Permanently deletes a conversation (messages, metadata, global index).
-Uses context.store.delete_conversation(conversation_id=...).
+Uses context.agent.store.delete_conversation(conversation_id=...).
 Irreversible.
 """
 
@@ -30,7 +30,8 @@ async def handler(context: Any):
             "body": {"status": "error", "message": "conversation_id is required"},
         }
 
-    store = getattr(context, "store", None)
+    agent = getattr(context, "agent", None)
+    store = getattr(agent, "store", None) if agent is not None else None
 
     deleter = (
         getattr(store, "delete_conversation", None)
@@ -38,7 +39,7 @@ async def handler(context: Any):
     )
 
     if deleter is None or not callable(deleter):
-        logger.error("context.store.delete_conversation is unavailable")
+        logger.error("context.agent.store.delete_conversation is unavailable")
         return {
             "status_code": 501,
             "body": {
