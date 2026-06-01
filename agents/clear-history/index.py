@@ -26,11 +26,13 @@ async def handler(context: Any):
     """Clear conversation history and log the post-clear state."""
     body = getattr(context.request, "body", None) or {}
     cid = ""
+    user_id = None
     if isinstance(body, dict):
         cid = body.get("conversation_id") or body.get("conversationId") or ""
+        user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
     store = getattr(context, "store", None)
 
-    logger.log(f"conversation_id={cid}")
+    logger.log(f"conversation_id={cid}, user_id={user_id or '-'}")
 
     if not cid:
         return {
@@ -52,10 +54,11 @@ async def handler(context: Any):
         }
 
     try:
-        await store.clear_messages(cid)
+        # clear_messages 只接受 conversation_id 参数
+        await store.clear_messages(conversation_id=cid)
 
         if hasattr(store, "get_messages"):
-            history_after_clear = await store.get_messages(cid, limit=100, order="asc")
+            history_after_clear = await store.get_messages(conversation_id=cid, limit=100, order="asc")
             logger.log(
                 "[clear-history] history after clear:",
                 {

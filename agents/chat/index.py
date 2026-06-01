@@ -51,21 +51,6 @@ logger = create_logger("chat")
 HEARTBEAT_INTERVAL_S = 5
 MCP_SERVER_NAME = "edgeone"
 
-# SYSTEM_PROMPT = (
-#     "You are a helpful assistant running inside an EdgeOne environment.\n"
-#     "You have access to these EdgeOne platform tools:\n"
-#     "- commands: execute shell commands in the sandbox (e.g. date, ls, uname).\n"
-#     "- files: file operations in the sandbox — read, write, list, makeDir, exists, remove.\n"
-#     "  Parameters: op (required), path (required for most ops), content (for write).\n"
-#     "- code_interpreter: run code in an isolated interpreter.\n"
-#     "  Parameters: language (e.g. 'python'), code (the source code to execute).\n"
-#     "- browser: interact with web pages — fetch, screenshot, click, type, evaluate.\n"
-#     "  Parameters: op (required), url (for fetch), selector, text, script.\n\n"
-#     "Use tools whenever they help answer the user's question concretely.\n"
-#     "Call tools ONE AT A TIME. Do NOT simulate or fake tool outputs — actually call the tool.\n"
-#     "Do NOT use any tools other than those listed above."
-# )
-
 SYSTEM_PROMPT = (
   'You are a helpful assistant running inside an EdgeOne Makers environment.\n' +
   'You can use only the EdgeOne platform tools listed below. Do not assume any other tools exist.\n\n' +
@@ -178,6 +163,10 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     user_msg_id: str = body.get("userMsgId", "") if isinstance(body, dict) else ""
     bot_msg_id: str = body.get("botMsgId", "") if isinstance(body, dict) else ""
 
+    # Extract user ID for store scoping
+    raw_user_id = body.get("userId") or body.get("user_id") or "" if isinstance(body, dict) else ""
+    user_id = str(raw_user_id).strip() or None
+
     if not _SDK_AVAILABLE:
         yield sse_event("error", {"message": "claude_agent_sdk is not installed"})
         yield sse_event("done", {"stopped": False})
@@ -203,7 +192,7 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     if store_adapter and cid:
         # === DEBUG: dump all store messages for this conversation ===
         try:
-            all_msgs = await store_adapter.get_messages(cid, limit=100, order="asc")
+            all_msgs = await store_adapter.get_messages(conversation_id=cid, limit=100, order="asc")
             logger.log(f"[debug_store] conversation={cid}, total_messages={len(all_msgs)}")
             for m in all_msgs:
                 role = getattr(m, "role", "?")
@@ -217,16 +206,14 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         # === END DEBUG ===
 
         try:
-            if user_msg_id:
-                await store_adapter.append_message(cid, "user", user_message, message_id=user_msg_id)
-            else:
-                await store_adapter.append_message(cid, "user", user_message)
-        except TypeError:
-            # Fallback if store doesn't support message_id parameter
-            try:
-                await store_adapter.append_message(cid, "user", user_message)
-            except Exception as e:
-                logger.error(f"[store] failed to save user message: {e}")
+            # append_message 只支持: conversation_id, role, content, metadata, user_id
+            # 不支持 message_id 参数（SDK 自动生成 message_id）
+            await store_adapter.append_message(
+                conversation_id=cid,
+                role="user",
+                content=user_message,
+                user_id=user_id,
+            )
         except Exception as e:
             logger.error(f"[store] failed to save user message: {e}")
 
@@ -309,16 +296,13 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
 
     if store_adapter and cid and assistant_content:
         try:
-            if bot_msg_id:
-                await store_adapter.append_message(cid, "assistant", assistant_content, message_id=bot_msg_id)
-            else:
-                await store_adapter.append_message(cid, "assistant", assistant_content)
-        except TypeError:
-            # Fallback if store doesn't support message_id parameter
-            try:
-                await store_adapter.append_message(cid, "assistant", assistant_content)
-            except Exception as e:
-                logger.error(f"[store] failed to save assistant response: {e}")
+            # append_message 只支持: conversation_id, role, content, metadata, user_id
+            await store_adapter.append_message(
+                conversation_id=cid,
+                role="assistant",
+                content=assistant_content,
+                user_id=user_id,
+            )
         except Exception as e:
             logger.error(f"[store] failed to save assistant response: {e}")
 

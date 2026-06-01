@@ -2,21 +2,25 @@
  * 后端接口（EdgeOne Makers）
  *
  * 路由映射规则（文件 → 路由）：
- *   agents/chat/index.ts    → POST /chat          主聊天入口
- *   agents/stop/index.ts    → POST /stop          中断正在执行的 agent
- *   cloud-functions/history/index.ts → POST /history        获取历史消息
- *   agents/clear-history/index.py → POST /clear-history  清除历史消息
+ *   agents/chat/index.py         → POST /chat                主聊天入口
+ *   agents/stop/index.py         → POST /stop                中断正在执行的 agent
+ *   agents/history/index.py      → POST /history             获取历史消息
+ *   agents/clear-history/index.py → POST /clear-history      清除历史消息
+ *   agents/conversations/index.py → POST /conversations       列出用户会话
+ *   agents/delete-conversation/index.py → POST /delete-conversation 永久删除会话
  *
  * 本文件集中定义所有路径 + 请求封装，方便以后扩展子路由。
  */
 
-import type { Message, ImageSsePayload } from './types';
+import type { Message, ImageSsePayload, ListConversationsParams, ListConversationsResponse } from './types';
 
 export const API = {
   chat: '/chat',
   chatStop: '/stop',
   history: '/history',
   clearHistory: '/clear-history',
+  conversations: '/conversations',
+  deleteConversation: '/delete-conversation',
 } as const;
 
 export interface RawSseEvent {
@@ -49,7 +53,10 @@ export interface StreamCallbacks {
 }
 
 /** 获取当前 conversation 的历史消息，用于刷新页面后恢复聊天窗口。 */
-export async function fetchConversationHistory(conversationId: string): Promise<Message[]> {
+export async function fetchConversationHistory(conversationId: string, userId?: string): Promise<Message[]> {
+  const startTime = performance.now();
+  console.log(`[history] start: ${new Date().toISOString()}`);
+
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await fetch(API.history, {
@@ -57,7 +64,7 @@ export async function fetchConversationHistory(conversationId: string): Promise<
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ conversation_id: conversationId }),
+        body: JSON.stringify({ conversation_id: conversationId, user_id: userId }),
       });
 
       // 409 = 同 conversation 有活跃请求（React StrictMode 双渲染导致），等一下重试
@@ -66,14 +73,23 @@ export async function fetchConversationHistory(conversationId: string): Promise<
         continue;
       }
 
-      if (!res.ok) return [];
+      if (!res.ok) {
+        console.log(`[history] end: ${new Date().toISOString()}, total: ${(performance.now() - startTime).toFixed(2)}ms`);
+        return [];
+      }
 
       const data = await res.json().catch(() => null) as { messages?: Message[] } | null;
-      return Array.isArray(data?.messages) ? data.messages : [];
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+
+      console.log(`[history] end: ${new Date().toISOString()}, total: ${(performance.now() - startTime).toFixed(2)}ms`);
+      return messages;
     } catch {
+      console.log(`[history] end: ${new Date().toISOString()}, total: ${(performance.now() - startTime).toFixed(2)}ms`);
       return [];
     }
   }
+
+  console.log(`[history] end: ${new Date().toISOString()}, total: ${(performance.now() - startTime).toFixed(2)}ms`);
   return [];
 }
 
@@ -87,8 +103,8 @@ export function sendMessageStream(
   message: string,
   callbacks: StreamCallbacks,
   conversationId?: string,
-  userMsgId?: string,
-  botMsgId?: string,
+  messageIds?: { userMsgId: string; botMsgId: string },
+  userId?: string,
 ): AbortController {
   const ctrl = new AbortController();
 
@@ -104,7 +120,12 @@ export function sendMessageStream(
       const res = await fetch(API.chat, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message, userMsgId, botMsgId }),
+        body: JSON.stringify({
+          message,
+          userMsgId: messageIds?.userMsgId,
+          botMsgId: messageIds?.botMsgId,
+          userId,
+        }),
         signal: ctrl.signal,
       });
 
@@ -247,17 +268,82 @@ export async function stopAgent(conversationId?: string): Promise<boolean> {
 }
 
 /** 清除后端 conversation 历史。 */
-export async function clearConversationHistory(conversationId?: string): Promise<boolean> {
+export async function clearConversationHistory(conversationId?: string, userId?: string): Promise<boolean> {
   if (!conversationId) return false;
 
   try {
     const res = await fetch(API.clearHistory, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversation_id: conversationId }),
+      body: JSON.stringify({ conversation_id: conversationId, user_id: userId }),
     });
     return res.ok;
   } catch {
+    return false;
+  }
+}
+
+/**
+ * List conversations for the given user (eo-uuid).
+ * Returns at most `limit` (default 20) conversations ordered by lastMessageAt desc by default.
+ * Pass `after` from a previous response's `nextCursor` to paginate.
+ */
+export async function listConversations(params: ListConversationsParams): Promise<ListConversationsResponse> {
+  const startTime = performance.now();
+  console.log(`[conversations] start: ${new Date().toISOString()}`);
+
+  const empty: ListConversationsResponse = { conversations: [] };
+  if (!params.userId) return empty;
+
+  try {
+    const res = await fetch(API.conversations, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: params.userId,
+        limit: params.limit ?? 20,
+        order: params.order ?? 'desc',
+        after: params.after,
+        before: params.before,
+      }),
+    });
+
+    if (!res.ok) {
+      console.warn(`[conversations] HTTP ${res.status}`);
+      console.log(`[conversations] end: ${new Date().toISOString()}, total: ${(performance.now() - startTime).toFixed(2)}ms`);
+      return empty;
+    }
+
+    const data = await res.json().catch(() => null) as ListConversationsResponse | null;
+    console.log(`[conversations] end: ${new Date().toISOString()}, total: ${(performance.now() - startTime).toFixed(2)}ms, count=${data?.conversations?.length ?? 0}`);
+    if (!data || !Array.isArray(data.conversations)) return empty;
+    return {
+      conversations: data.conversations,
+      nextCursor: data.nextCursor,
+      previousCursor: data.previousCursor,
+    };
+  } catch (e) {
+    console.warn('[conversations] request failed:', e);
+    return empty;
+  }
+}
+
+/**
+ * Permanently delete a conversation (messages + metadata + index).
+ * Irreversible — caller must already have confirmed with the user.
+ */
+export async function deleteConversation(conversationId: string, userId?: string): Promise<boolean> {
+  if (!conversationId) return false;
+
+  try {
+    const res = await fetch(API.deleteConversation, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: conversationId, user_id: userId }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn('[delete-conversation] request failed:', e);
     return false;
   }
 }
