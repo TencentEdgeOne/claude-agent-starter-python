@@ -1,77 +1,55 @@
 """
-History handler — EdgeOne Makers
-=========================================
+History handler — EdgeOne Pages Python cloud function.
 
-Route: POST /history
+POST /history
+  Body:    { conversation_id, user_id? }
+  Returns: { conversation_id, messages: [{ id, role, content, timestamp }, ...] }
 
-Reads conversation history from context.agent.store.get_messages() and returns
-it to the frontend for restoring the chat window after a page refresh.
+Returns the chat history for a conversation so the frontend can restore the
+chat window after a page refresh.
 
-Note: base64Image content is redacted from history responses to avoid
-sending large payloads to the frontend. Images are restored from
-client-side IndexedDB instead.
+Note: base64Image content is redacted from history responses to avoid sending
+large payloads to the frontend. Images are restored from client-side IndexedDB.
 """
 
 import json
+import os
+import sys
 import time
-from datetime import datetime, timezone
+import traceback
+from http.server import BaseHTTPRequestHandler
 from typing import Any
 
-from .._logger import create_logger
-from .._redact import redact_base64_in_text
+# EdgeOne loads each index.py as a top-level module without package context,
+# so the parent directory must be on sys.path to import sibling helpers.
+_PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT_DIR not in sys.path:
+    sys.path.insert(0, _PARENT_DIR)
+
+from _logger import create_logger  # noqa: E402
+from _redact import redact_base64_in_text  # noqa: E402
 
 logger = create_logger("history")
 
-
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+MESSAGE_LIMIT = 100
 
 
-def _get_conversation_id(body: Any) -> str:
-    if not isinstance(body, dict):
-        return ""
-    value = body.get("conversation_id")
-    if value is None:
-        value = body.get("conversationId")
-    return value if isinstance(value, str) else ""
-
-
-def _content_to_text(content: Any) -> str:
-    """Flatten various content shapes into a plain text string with base64 redacted."""
-    if isinstance(content, str):
-        return redact_base64_in_text(content)
-
-    if isinstance(content, dict):
-        if "content" in content:
-            return _content_to_text(content.get("content"))
-        if "output" in content:
-            return _content_to_text(content.get("output"))
-        if "text" in content:
-            return redact_base64_in_text(str(content.get("text") or ""))
-        return ""
-
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if not isinstance(item, dict):
-                continue
-            text = str(item.get("text") or item.get("output_text") or "")
-            text = redact_base64_in_text(text)
-            if text:
-                parts.append(text)
-        return "\n".join(parts)
-
-    if content is None:
-        return ""
-
-    return str(content)
+def _read_body(rfile, headers) -> dict:
+    """Decode the JSON request body; return an empty dict on any failure."""
+    length = int(headers.get("Content-Length") or 0)
+    if length <= 0:
+        return {}
+    try:
+        return json.loads(rfile.read(length).decode("utf-8")) or {}
+    except (ValueError, UnicodeDecodeError):
+        return {}
 
 
 def _attr(item: Any, *keys: str) -> Any:
-    """Read attribute or dict key, trying each key in order."""
+    """Read attribute or dict key, trying each name in order until a value is found."""
     if isinstance(item, dict):
         for k in keys:
-            if k in item and item[k] is not None:
+            if item.get(k) is not None:
                 return item[k]
         return None
     for k in keys:
@@ -81,109 +59,97 @@ def _attr(item: Any, *keys: str) -> Any:
     return None
 
 
-def _serialize_for_log(obj: Any) -> Any:
-    """Best-effort convert SDK message objects (or anything) to JSON-friendly form."""
-    if isinstance(obj, (str, int, float, bool)) or obj is None:
-        return obj
-    if isinstance(obj, dict):
-        return {k: _serialize_for_log(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_serialize_for_log(v) for v in obj]
-    # Fallback: pull __dict__ if available, else repr
-    if hasattr(obj, "__dict__"):
-        return {k: _serialize_for_log(v) for k, v in vars(obj).items() if not k.startswith("_")}
-    return repr(obj)
-
-
-async def handler(context: Any):
-    start_time = time.time()
-    logger.log(f"[history] start: {_iso_now()}")
-
-    body = getattr(context.request, "body", None) or {}
-    if not isinstance(body, dict):
-        body = {}
-
-    conversation_id = _get_conversation_id(body)
-
-    agent = getattr(context, "agent", None)
-    store = getattr(agent, "store", None) if agent is not None else None
-
-    logger.log(f"conversationId: {conversation_id}")
-
-    if not store or not conversation_id:
-        logger.log(
-            f"[history] end: {_iso_now()}, total: {int((time.time() - start_time) * 1000)}ms"
-        )
-        return {"conversation_id": conversation_id, "messages": []}
-
-    getter = (
-        getattr(store, "get_messages", None)
-        or getattr(store, "getMessages", None)
-    )
-
-    if getter is None or not callable(getter):
-        logger.error("context.agent.store.get_messages is unavailable")
-        logger.log(
-            f"[history] end: {_iso_now()}, total: {int((time.time() - start_time) * 1000)}ms"
-        )
-        return {"conversation_id": conversation_id, "messages": []}
-
-    try:
-        history = await getter(conversation_id=conversation_id, limit=100, order="asc")
-
-        # === DEBUG: 打印 store 返回的原始历史数据 ===
-        try:
-            raw_dump = _serialize_for_log(history)
-            logger.log(
-                f"[history][store_raw] conversation_id={conversation_id}, "
-                f"count={len(history) if isinstance(history, list) else 0}, "
-                f"data={json.dumps(raw_dump, ensure_ascii=False, default=str)}"
-            )
-        except Exception as dump_err:
-            logger.error(f"[history][store_raw] dump failed: {dump_err}")
-
-        messages: list[dict] = []
-        for item in history or []:
-            role = _attr(item, "role")
-            if role != "user" and role != "assistant":
+def _content_to_text(content: Any) -> str:
+    """Flatten a message content (string / dict / list) into plain text with base64 redacted."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return redact_base64_in_text(content)
+    if isinstance(content, dict):
+        if "content" in content:
+            return _content_to_text(content["content"])
+        if "output" in content:
+            return _content_to_text(content["output"])
+        if "text" in content:
+            return redact_base64_in_text(str(content["text"] or ""))
+        return ""
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if not isinstance(item, dict):
                 continue
+            text = redact_base64_in_text(str(item.get("text") or item.get("output_text") or ""))
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+    return str(content)
 
-            content = _content_to_text(_attr(item, "content"))
-            if not content and role == "user":
-                continue
 
-            message_id = _attr(item, "message_id", "messageId")
-            created_at = _attr(item, "created_at", "createdAt") or 0
+def _normalize_message(item: Any) -> dict | None:
+    """Normalize a SDK message into the frontend response shape, dropping unsupported roles."""
+    role = _attr(item, "role")
+    if role not in ("user", "assistant"):
+        return None
 
-            messages.append(
-                {
-                    "id": message_id or f"{role}-{created_at}",
-                    "role": role,
-                    "content": content or "",
-                    "timestamp": int(created_at) if isinstance(created_at, (int, float)) else 0,
-                }
-            )
+    content = _content_to_text(_attr(item, "content"))
+    if not content and role == "user":
+        return None
 
-        response = {"conversation_id": conversation_id, "messages": messages}
+    message_id = _attr(item, "message_id", "messageId")
+    created_at = _attr(item, "created_at", "createdAt") or 0
+    timestamp = int(created_at) if isinstance(created_at, (int, float)) else 0
 
-        # === DEBUG: 打印最终返回给前端的响应 ===
+    return {
+        "id": message_id or f"{role}-{timestamp}",
+        "role": role,
+        "content": content or "",
+        "timestamp": timestamp,
+    }
+
+
+class handler(BaseHTTPRequestHandler):
+    def _write_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=UTF-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_store(self) -> Any:
+        agent = getattr(getattr(self, "context", None), "agent", None)
+        return getattr(agent, "store", None) if agent is not None else None
+
+    def do_POST(self):
+        start = time.time()
+
+        body = _read_body(self.rfile, self.headers)
+        conversation_id = str(body.get("conversation_id") or body.get("conversationId") or "").strip()
+        user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
+
+        store = self._get_store()
+        logger.log(f"get_messages: conversation_id={conversation_id!r} user_id={user_id!r}")
+
+        if not conversation_id or store is None or not hasattr(store, "get_messages"):
+            self._write_json(200, {"conversation_id": conversation_id, "messages": []})
+            return
+
         try:
+            history = store.get_messages(
+                conversation_id=conversation_id, limit=MESSAGE_LIMIT, order="asc"
+            ) or []
+            messages = [m for item in history if (m := _normalize_message(item))]
+
+            elapsed_ms = int((time.time() - start) * 1000)
             logger.log(
-                f"[history][response] conversation_id={conversation_id}, "
-                f"count={len(messages)}, "
-                f"data={json.dumps(response, ensure_ascii=False, default=str)}"
+                f"get_messages: returned {len(messages)} messages in {elapsed_ms}ms"
             )
-        except Exception as dump_err:
-            logger.error(f"[history][response] dump failed: {dump_err}")
+            self._write_json(200, {"conversation_id": conversation_id, "messages": messages})
 
-        logger.log(
-            f"[history] end: {_iso_now()}, total: {int((time.time() - start_time) * 1000)}ms"
-        )
-        return response
-
-    except Exception as e:
-        logger.error(f"failed to get messages: {e}")
-        logger.log(
-            f"[history] end: {_iso_now()}, total: {int((time.time() - start_time) * 1000)}ms"
-        )
-        return {"conversation_id": conversation_id, "messages": []}
+        except Exception as e:
+            logger.error(
+                f"get_messages failed: conversation_id={conversation_id!r} "
+                f"user_id={user_id!r} type={type(e).__name__} err={e!r}"
+            )
+            logger.error(f"traceback:\n{traceback.format_exc()}")
+            self._write_json(200, {"conversation_id": conversation_id, "messages": []})

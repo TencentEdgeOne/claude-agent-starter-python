@@ -1,82 +1,88 @@
 """
-Clear history handler — EdgeOne Makers
+Clear-history handler — EdgeOne Pages Python cloud function.
 
-Route: POST /clear-history
-Clears backend messages for the current conversation.
+POST /clear-history
+  Body:    { conversation_id, user_id? }
+  Returns: { status: "ok", conversation_id }
+
+Clears all messages for a conversation. The conversation itself is preserved.
 """
 
+import json
+import os
+import sys
+import traceback
+from http.server import BaseHTTPRequestHandler
 from typing import Any
 
-from .._logger import create_logger
+# EdgeOne loads each index.py as a top-level module without package context,
+# so the parent directory must be on sys.path to import sibling helpers.
+_PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT_DIR not in sys.path:
+    sys.path.insert(0, _PARENT_DIR)
+
+from _logger import create_logger  # noqa: E402
 
 logger = create_logger("clear-history")
 
 
-def _debug_message(item: Any) -> dict:
-    """Convert a stored message object to a compact debug payload."""
-    return {
-        "message_id": getattr(item, "message_id", None),
-        "role": getattr(item, "role", None),
-        "created_at": getattr(item, "created_at", None),
-        "content": getattr(item, "content", None),
-    }
-
-
-async def handler(context: Any):
-    """Clear conversation history and log the post-clear state."""
-    body = getattr(context.request, "body", None) or {}
-    cid = ""
-    user_id = None
-    if isinstance(body, dict):
-        cid = body.get("conversation_id") or body.get("conversationId") or ""
-        user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
-    agent = getattr(context, "agent", None)
-    store = getattr(agent, "store", None) if agent is not None else None
-
-    logger.log(f"conversation_id={cid}, user_id={user_id or '-'}")
-
-    if not cid:
-        return {
-            "status_code": 400,
-            "body": {
-                "status": "error",
-                "message": "conversation_id is required",
-            },
-        }
-
-    if store is None or not hasattr(store, "clear_messages"):
-        logger.error("context.agent.store.clear_messages is unavailable")
-        return {
-            "status_code": 501,
-            "body": {
-                "status": "error",
-                "message": "store.clear_messages is unavailable",
-            },
-        }
-
+def _read_body(rfile, headers) -> dict:
+    """Decode the JSON request body; return an empty dict on any failure."""
+    length = int(headers.get("Content-Length") or 0)
+    if length <= 0:
+        return {}
     try:
-        # clear_messages 只接受 conversation_id 参数
-        await store.clear_messages(conversation_id=cid)
+        return json.loads(rfile.read(length).decode("utf-8")) or {}
+    except (ValueError, UnicodeDecodeError):
+        return {}
 
-        if hasattr(store, "get_messages"):
-            history_after_clear = await store.get_messages(conversation_id=cid, limit=100, order="asc")
-            logger.log(
-                "[clear-history] history after clear:",
-                {
-                    "conversation_id": cid,
-                    "count": len(history_after_clear) if isinstance(history_after_clear, list) else 0,
-                    "messages": [_debug_message(item) for item in history_after_clear],
-                },
+
+class handler(BaseHTTPRequestHandler):
+    def _write_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=UTF-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_store(self) -> Any:
+        agent = getattr(getattr(self, "context", None), "agent", None)
+        return getattr(agent, "store", None) if agent is not None else None
+
+    def do_POST(self):
+        body = _read_body(self.rfile, self.headers)
+
+        conversation_id = str(body.get("conversation_id") or body.get("conversationId") or "").strip()
+        user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
+
+        if not conversation_id:
+            self._write_json(400, {"status": "error", "message": "conversation_id is required"})
+            return
+
+        store = self._get_store()
+        if store is None or not hasattr(store, "clear_messages"):
+            logger.error("context.agent.store.clear_messages is unavailable")
+            self._write_json(
+                501,
+                {"status": "error", "message": "store is unavailable"},
             )
+            return
 
-        return {"status": "ok", "conversation_id": cid}
-    except Exception as e:
-        logger.error(f"failed to clear messages: {e}")
-        return {
-            "status_code": 500,
-            "body": {
-                "status": "error",
-                "conversation_id": cid,
-                "message": str(e),
-            },
-        }
+        logger.log(f"clear_messages: conversation_id={conversation_id!r} user_id={user_id!r}")
+
+        try:
+            store.clear_messages(conversation_id=conversation_id)
+            logger.log(f"clear_messages: cleared conversation_id={conversation_id!r}")
+            self._write_json(200, {"status": "ok", "conversation_id": conversation_id})
+
+        except Exception as e:
+            logger.error(
+                f"clear_messages failed: conversation_id={conversation_id!r} "
+                f"user_id={user_id!r} type={type(e).__name__} err={e!r}"
+            )
+            logger.error(f"traceback:\n{traceback.format_exc()}")
+            self._write_json(
+                500,
+                {"status": "error", "conversation_id": conversation_id, "message": str(e)},
+            )
