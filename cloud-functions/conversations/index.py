@@ -1,251 +1,226 @@
 """
-Conversations handler — EdgeOne Makers
+Conversations handler — EdgeOne Pages Python cloud function.
 
-Route: POST /conversations
+POST /conversations
+  Body:    { user_id, limit?, order?, after?, before? }
+  Returns: { conversations: [...], nextCursor, previousCursor }
 
-Lists conversations for the requesting eo-uuid user.
-Calls context.agent.store.list_conversations(user_id=..., limit=..., order=..., after=..., before=...).
-Returns: { conversations, next_cursor, previous_cursor }
-
-user_id is REQUIRED — returns 400 without it.
+Lists conversations for the requesting user. `user_id` is required.
 """
 
-from typing import Any
 import json
-from .._logger import create_logger
+import os
+import sys
+import traceback
+from http.server import BaseHTTPRequestHandler
+from typing import Any
+
+# EdgeOne loads each index.py as a top-level module without package context,
+# so the parent directory must be on sys.path to import sibling helpers.
+_PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT_DIR not in sys.path:
+    sys.path.insert(0, _PARENT_DIR)
+
+from _logger import create_logger  # noqa: E402
 
 logger = create_logger("conversations")
 
 DEFAULT_LIMIT = 20
 MIN_LIMIT = 1
 MAX_LIMIT = 100
+TITLE_MAX_LEN = 8
 
 
-def _clamp_limit(raw) -> int:
+def _read_body(rfile, headers) -> dict:
+    """Decode the JSON request body; return an empty dict on any failure."""
+    length = int(headers.get("Content-Length") or 0)
+    if length <= 0:
+        return {}
     try:
-        v = int(raw)
-        return max(MIN_LIMIT, min(MAX_LIMIT, v))
+        return json.loads(rfile.read(length).decode("utf-8")) or {}
+    except (ValueError, UnicodeDecodeError):
+        return {}
+
+
+def _clamp_limit(raw: Any) -> int:
+    try:
+        return max(MIN_LIMIT, min(MAX_LIMIT, int(raw)))
     except (TypeError, ValueError):
         return DEFAULT_LIMIT
 
 
-def _serialize_for_log(obj: Any) -> Any:
-    """Best-effort convert SDK objects (or anything) to JSON-friendly form."""
-    if isinstance(obj, (str, int, float, bool)) or obj is None:
-        return obj
-    if isinstance(obj, dict):
-        return {k: _serialize_for_log(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_serialize_for_log(v) for v in obj]
-    if hasattr(obj, "__dict__"):
-        return {k: _serialize_for_log(v) for k, v in vars(obj).items() if not k.startswith("_")}
-    return repr(obj)
+def _attr(item: Any, *keys: str) -> Any:
+    """Read attribute or dict key, trying each name in order until a value is found."""
+    if isinstance(item, dict):
+        for k in keys:
+            if item.get(k) is not None:
+                return item[k]
+        return None
+    for k in keys:
+        v = getattr(item, k, None)
+        if v is not None:
+            return v
+    return None
+
+
+def _to_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _truncate_title(text: str) -> str:
+    text = text.replace("\n", " ").strip()
+    return text if len(text) <= TITLE_MAX_LEN else text[:TITLE_MAX_LEN] + "..."
 
 
 def _normalize_conversation(item: Any) -> dict | None:
-    """Normalize a runtime ConversationMeta object into a stable frontend shape.
-
-    SDK Python 端字段（snake_case）：
-      conversation_id, created_at, last_message_at, message_count, metadata
-    """
-    if item is None:
-        return None
-
-    # Support both object attributes and dict keys
-    def get(key, *aliases):
-        for k in (key, *aliases):
-            v = getattr(item, k, None) if not isinstance(item, dict) else item.get(k)
-            if v is not None:
-                return v
-        return None
-
-    # SDK 字段：conversation_id (Python snake_case)
-    conv_id = get("conversation_id", "conversationId", "id")
+    """Normalize a SDK ConversationMeta into the frontend response shape."""
+    conv_id = _attr(item, "conversation_id", "conversationId", "id")
     if not conv_id:
         return None
 
-    # Title: SDK ConversationMeta 本身没有 title 字段，从 metadata 里取；
-    # 若没有，title fallback 由后面的 get_messages 补充
-    meta = get("metadata") or {}
-    if isinstance(meta, dict):
-        explicit_title = meta.get("title") or meta.get("name") or meta.get("subject")
-    else:
-        explicit_title = getattr(meta, "title", None) or getattr(meta, "name", None)
-
-    # 也尝试 first_user_message（老式字段）
-    first_question = get("first_user_message", "firstUserMessage", "first_message", "firstMessage")
-    if not explicit_title and first_question:
-        text = str(first_question).replace("\n", " ").strip()
-        explicit_title = text if len(text) <= 8 else text[:8] + "..."
-
-    title = explicit_title or "New chat"
-
+    metadata = _attr(item, "metadata") or {}
+    title = None
     preview = None
-    if isinstance(meta, dict):
-        preview = meta.get("preview") or meta.get("last_message") or meta.get("snippet")
+    if isinstance(metadata, dict):
+        title = metadata.get("title") or metadata.get("name") or metadata.get("subject")
+        preview = metadata.get("preview") or metadata.get("last_message") or metadata.get("snippet")
 
-    def to_ts(v):
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return int(v)
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return None
+    if not title:
+        first_message = _attr(item, "first_user_message", "firstUserMessage", "first_message")
+        if first_message:
+            title = _truncate_title(str(first_message))
+
+    user_id = _attr(item, "user_id", "userId")
 
     return {
         "id": str(conv_id),
-        "title": title,
+        "title": title or "New chat",
         "preview": str(preview) if preview else None,
-        # SDK Python: last_message_at / created_at
-        "lastMessageAt": to_ts(get("last_message_at", "lastMessageAt", "updated_at", "updatedAt")),
-        "createdAt": to_ts(get("created_at", "createdAt")),
-        "userId": str(u) if (u := get("user_id", "userId")) else None,
-        # SDK Python: message_count
-        "messageCount": int(mc) if (mc := get("message_count", "messageCount")) else None,
+        "lastMessageAt": _to_int(_attr(item, "last_message_at", "lastMessageAt", "updated_at")),
+        "createdAt": _to_int(_attr(item, "created_at", "createdAt")),
+        "userId": str(user_id) if user_id else None,
+        "messageCount": _to_int(_attr(item, "message_count", "messageCount")),
     }
 
 
-async def handler(context: Any):
-    body = getattr(context.request, "body", None) or {}
-    if not isinstance(body, dict):
-        body = {}
+def _extract_items(result: Any) -> list:
+    """Pull the list of conversation items from various possible result shapes."""
+    if hasattr(result, "items") and isinstance(result.items, list):
+        return result.items
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        for key in ("items", "conversations", "data", "results"):
+            if isinstance(result.get(key), list):
+                return result[key]
+    return []
 
-    user_id = str(body.get("user_id") or body.get("userId") or "").strip()
-    limit = _clamp_limit(body.get("limit", DEFAULT_LIMIT))
-    order = "asc" if body.get("order") == "asc" else "desc"
-    after = str(body.get("after") or "").strip() or None
-    before = str(body.get("before") or "").strip() or None
 
-    if not user_id:
-        logger.error("Missing user_id")
-        return {
-            "status_code": 400,
-            "body": {"status": "error", "message": "user_id is required"},
-        }
+def _pick_cursor(result: Any, *keys: str) -> str | None:
+    """Return the first non-empty string cursor from a result (dict or object)."""
+    for k in keys:
+        value = result.get(k) if isinstance(result, dict) else getattr(result, k, None)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
-    agent = getattr(context, "agent", None)
-    store = getattr(agent, "store", None) if agent is not None else None
 
-    lister = (
-        getattr(store, "list_conversations", None)
-        or getattr(store, "listConversations", None)
-    )
-
-    if lister is None or not callable(lister):
-        logger.error("context.agent.store.list_conversations is unavailable")
-        return {
-            "status_code": 501,
-            "body": {
-                "status": "error",
-                "message": "store.list_conversations is unavailable",
-                "conversations": [],
-            },
-        }
-
-    params = {"user_id": user_id, "limit": limit, "order": order}
-    if after:
-        params["after"] = after
-    if before:
-        params["before"] = before
-
-    logger.log(f"list_conversations params: user_id=..., limit={limit}, order={order}, has_after={bool(after)}")
-
-    try:
-        result = await lister(**params)
-
-        # === DEBUG: 打印 store 返回的原始 list_conversations 数据 ===
+def _fill_missing_titles(store: Any, conversations: list[dict]) -> None:
+    """Replace the placeholder title with the first user message, when available."""
+    if not hasattr(store, "get_messages"):
+        return
+    for conv in conversations:
+        if conv["title"] != "New chat":
+            continue
         try:
-            raw_dump = _serialize_for_log(result)
-            logger.log(
-                f"[conversations][store_raw] user_id={user_id}, "
-                f"data={json.dumps(raw_dump, ensure_ascii=False, default=str)}"
+            messages = store.get_messages(conversation_id=conv["id"], limit=5, order="asc") or []
+        except Exception as e:
+            logger.error(f"failed to fetch first message for {conv['id']}: {e}")
+            continue
+        for msg in messages:
+            if _attr(msg, "role") != "user":
+                continue
+            text = str(_attr(msg, "content") or "")
+            if text.strip():
+                conv["title"] = _truncate_title(text)
+                break
+
+
+class handler(BaseHTTPRequestHandler):
+    def _write_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=UTF-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_store(self) -> Any:
+        agent = getattr(getattr(self, "context", None), "agent", None)
+        return getattr(agent, "store", None) if agent is not None else None
+
+    def do_POST(self):
+        body = _read_body(self.rfile, self.headers)
+
+        user_id = str(body.get("user_id") or body.get("userId") or "").strip()
+        if not user_id:
+            self._write_json(400, {"status": "error", "message": "user_id is required"})
+            return
+
+        limit = _clamp_limit(body.get("limit", DEFAULT_LIMIT))
+        order = "asc" if body.get("order") == "asc" else "desc"
+        after = str(body.get("after") or "").strip() or None
+        before = str(body.get("before") or "").strip() or None
+
+        store = self._get_store()
+        if store is None or not hasattr(store, "list_conversations"):
+            logger.error("context.agent.store.list_conversations is unavailable")
+            self._write_json(
+                501,
+                {"status": "error", "message": "store is unavailable", "conversations": []},
             )
-        except Exception as dump_err:
-            logger.error(f"[conversations][store_raw] dump failed: {dump_err}")
+            return
 
-        # SDK list_conversations 返回 ListConversationsResult 对象，Python 端字段：
-        #   result.items          → list[ConversationMeta]
-        #   result.next_cursor    → str | None
-        #   result.previous_cursor → str | None
-        raw_items = []
-        if hasattr(result, "items") and isinstance(result.items, list):
-            raw_items = result.items
-        elif isinstance(result, list):
-            raw_items = result
-        elif isinstance(result, dict):
-            for key in ("items", "conversations", "data", "results"):
-                if isinstance(result.get(key), list):
-                    raw_items = result[key]
-                    break
+        params: dict = {"user_id": user_id, "limit": limit, "order": order}
+        if after:
+            params["after"] = after
+        if before:
+            params["before"] = before
 
-        conversations = [c for item in raw_items if (c := _normalize_conversation(item))]
+        logger.log(
+            f"list_conversations: user_id={user_id!r} limit={limit} order={order} "
+            f"after={after!r} before={before!r}"
+        )
 
-        # --- Title fallback: fetch first user message for untitled conversations ---
-        if store and hasattr(store, "get_messages"):
-            untitled = [c for c in conversations if c["title"] == "New chat"]
-            for conv in untitled:
-                try:
-                    messages = await store.get_messages(
-                        conversation_id=conv["id"], limit=5, order="asc"
-                    )
-                    for msg in (messages or []):
-                        role = getattr(msg, "role", None) if not isinstance(msg, dict) else msg.get("role")
-                        if role != "user":
-                            continue
-                        content = getattr(msg, "content", None) if not isinstance(msg, dict) else msg.get("content")
-                        text = str(content or "").replace("\n", " ").strip()
-                        if text:
-                            conv["title"] = text if len(text) <= 8 else text[:8] + "..."
-                            break
-                except Exception as e:
-                    logger.error(f"failed to fetch first message for {conv['id']}: {e}")
-        # -------------------------------------------------------------------------
-
-        def _pick_cursor(key, *aliases):
-            if isinstance(result, dict):
-                for k in (key, *aliases):
-                    v = result.get(k)
-                    if v and isinstance(v, str):
-                        return v
-            for k in (key, *aliases):
-                v = getattr(result, k, None)
-                if v and isinstance(v, str):
-                    return v
-            return None
-
-        # SDK Python 返回 next_cursor / previous_cursor (snake_case)
-        next_cursor = _pick_cursor("next_cursor", "nextCursor")
-        previous_cursor = _pick_cursor("previous_cursor", "previousCursor", "prev_cursor", "prevCursor")
-
-        logger.log(f"list_conversations: count={len(conversations)}, has_next={bool(next_cursor)}")
-
-        response = {
-            "conversations": conversations,
-            "nextCursor": next_cursor,
-            "previousCursor": previous_cursor,
-        }
-
-        # === DEBUG: 打印最终返回给前端的响应 ===
         try:
-            logger.log(
-                f"[conversations][response] user_id={user_id}, "
-                f"count={len(conversations)}, "
-                f"data={json.dumps(response, ensure_ascii=False, default=str)}"
+            result = store.list_conversations(**params)
+            conversations = [
+                c for item in _extract_items(result) if (c := _normalize_conversation(item))
+            ]
+            _fill_missing_titles(store, conversations)
+
+            response = {
+                "conversations": conversations,
+                "nextCursor": _pick_cursor(result, "next_cursor", "nextCursor"),
+                "previousCursor": _pick_cursor(
+                    result, "previous_cursor", "previousCursor", "prev_cursor", "prevCursor"
+                ),
+            }
+            logger.log(f"list_conversations: returned {len(conversations)} items")
+            self._write_json(200, response)
+
+        except Exception as e:
+            logger.error(
+                f"list_conversations failed: user_id={user_id!r} "
+                f"type={type(e).__name__} err={e!r}"
             )
-        except Exception as dump_err:
-            logger.error(f"[conversations][response] dump failed: {dump_err}")
-
-        return response
-
-    except Exception as e:
-        logger.error(f"failed to list conversations: {e}")
-        return {
-            "status_code": 500,
-            "body": {
-                "status": "error",
-                "message": str(e),
-                "conversations": [],
-            },
-        }
+            logger.error(f"traceback:\n{traceback.format_exc()}")
+            self._write_json(
+                500,
+                {"status": "error", "message": str(e), "conversations": []},
+            )

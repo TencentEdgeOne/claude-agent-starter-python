@@ -1,67 +1,91 @@
 """
-Delete-conversation handler — EdgeOne Makers
+Delete-conversation handler — EdgeOne Pages Python cloud function.
 
-Route: POST /delete-conversation
+POST /delete-conversation
+  Body:    { conversation_id, user_id? }
+  Returns: { status: "ok", conversation_id }
 
-Permanently deletes a conversation (messages, metadata, global index).
-Uses context.agent.store.delete_conversation(conversation_id=...).
-Irreversible.
+Permanently deletes a conversation (messages, metadata, and global index).
+This operation is irreversible.
 """
 
+import json
+import os
+import sys
+import traceback
+from http.server import BaseHTTPRequestHandler
 from typing import Any
-from .._logger import create_logger
+
+# EdgeOne loads each index.py as a top-level module without package context,
+# so the parent directory must be on sys.path to import sibling helpers.
+_PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT_DIR not in sys.path:
+    sys.path.insert(0, _PARENT_DIR)
+
+from _logger import create_logger  # noqa: E402
 
 logger = create_logger("delete-conversation")
 
 
-async def handler(context: Any):
-    body = getattr(context.request, "body", None) or {}
-    if not isinstance(body, dict):
-        body = {}
-
-    cid = str(body.get("conversation_id") or body.get("conversationId") or "").strip()
-    user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
-
-    logger.log(f"conversation_id={cid}, user_id={user_id or '-'}")
-
-    if not cid:
-        return {
-            "status_code": 400,
-            "body": {"status": "error", "message": "conversation_id is required"},
-        }
-
-    agent = getattr(context, "agent", None)
-    store = getattr(agent, "store", None) if agent is not None else None
-
-    deleter = (
-        getattr(store, "delete_conversation", None)
-        or getattr(store, "deleteConversation", None)
-    )
-
-    if deleter is None or not callable(deleter):
-        logger.error("context.agent.store.delete_conversation is unavailable")
-        return {
-            "status_code": 501,
-            "body": {
-                "status": "error",
-                "message": "store.delete_conversation is unavailable",
-            },
-        }
-
+def _read_body(rfile, headers) -> dict:
+    """Decode the JSON request body; return an empty dict on any failure."""
+    length = int(headers.get("Content-Length") or 0)
+    if length <= 0:
+        return {}
     try:
-        # delete_conversation 只接受 conversation_id 参数
-        await deleter(conversation_id=cid)
+        return json.loads(rfile.read(length).decode("utf-8")) or {}
+    except (ValueError, UnicodeDecodeError):
+        return {}
 
-        logger.log(f"deleted conversation_id={cid}")
-        return {"status": "ok", "conversation_id": cid}
 
-    except Exception as e:
-        logger.error(f"failed to delete conversation: {e}")
-        return {
-            "status_code": 500,
-            "body": {
-                "status": "error",
-                "conversation_id": cid,
-                "message": str(e),
-            },
-        }
+class handler(BaseHTTPRequestHandler):
+    def _write_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=UTF-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_store(self) -> Any:
+        agent = getattr(getattr(self, "context", None), "agent", None)
+        return getattr(agent, "store", None) if agent is not None else None
+
+    def do_POST(self):
+        body = _read_body(self.rfile, self.headers)
+
+        conversation_id = str(body.get("conversation_id") or body.get("conversationId") or "").strip()
+        user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
+
+        if not conversation_id:
+            self._write_json(400, {"status": "error", "message": "conversation_id is required"})
+            return
+
+        store = self._get_store()
+        if store is None or not hasattr(store, "delete_conversation"):
+            logger.error("context.agent.store.delete_conversation is unavailable")
+            self._write_json(
+                501,
+                {"status": "error", "message": "store is unavailable"},
+            )
+            return
+
+        logger.log(
+            f"delete_conversation: conversation_id={conversation_id!r} user_id={user_id!r}"
+        )
+
+        try:
+            store.delete_conversation(conversation_id=conversation_id)
+            logger.log(f"delete_conversation: deleted conversation_id={conversation_id!r}")
+            self._write_json(200, {"status": "ok", "conversation_id": conversation_id})
+
+        except Exception as e:
+            logger.error(
+                f"delete_conversation failed: conversation_id={conversation_id!r} "
+                f"user_id={user_id!r} type={type(e).__name__} err={e!r}"
+            )
+            logger.error(f"traceback:\n{traceback.format_exc()}")
+            self._write_json(
+                500,
+                {"status": "error", "conversation_id": conversation_id, "message": str(e)},
+            )
