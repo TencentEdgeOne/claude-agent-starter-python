@@ -275,7 +275,11 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
 
     except Exception as e:  # noqa: BLE001
         logger.error(f"[error] {e}")
-        yield sse_event("error", {"message": str(e)})
+        yield sse_event("error", {
+            "message": str(e),
+            "errorType": type(e).__name__,
+            "detail": repr(e),
+        })
 
     # Save assistant response (with frontend-generated ID if available)
     # Save even if text is empty but images were sent (use placeholder)

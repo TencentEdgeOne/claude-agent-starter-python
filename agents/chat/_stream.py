@@ -231,7 +231,11 @@ def _handle_assistant_message(msg: Any, state: StreamState, debug_logger: Any = 
                 if text:
                     err_text = text
                     break
-        return [sse_event("error", {"message": err_text or str(error)})], True
+        return [sse_event("error", {
+            "message": err_text or str(error),
+            "errorType": type(error).__name__,
+            "detail": repr(error),
+        })], True
 
     if not isinstance(content, list):
         return [], False
