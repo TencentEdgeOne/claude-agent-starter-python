@@ -464,7 +464,28 @@ function AppInner() {
         if (!isWebSearchToolEvent(event)) {
           finishBotActivity();
         }
-        if (event.eventType === 'text_delta') return;
+        // Coalesce consecutive text_delta events into a single growing entry,
+        // so a multi-paragraph response doesn't flood the debug panel with
+        // hundreds of one-token rows.
+        if (event.eventType === 'text_delta') {
+          const delta = (event.data as { delta?: string } | null)?.delta ?? '';
+          setRightPanelMode('debug');
+          setDebugEvents(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.eventType === 'text_delta') {
+              const prevDelta = (last.data as { delta?: string } | null)?.delta ?? '';
+              const merged: RawSseEvent = {
+                ...last,
+                data: { delta: prevDelta + delta },
+                raw: last.raw + delta,
+                timestamp: event.timestamp,
+              };
+              return [...prev.slice(0, -1), merged];
+            }
+            return [...prev, event];
+          });
+          return;
+        }
         setRightPanelMode('debug');
         setDebugEvents(prev => [...prev, event]);
         if (event.eventType === 'skills_available' || event.eventType === 'skill_loaded') {
