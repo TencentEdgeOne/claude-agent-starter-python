@@ -31,5 +31,9 @@ __pycache__/
 *.egg-info/
 uv.toml
 
+# Internal planning docs
+plan/
+
 # AI assistant local instructions
 CLAUDE.md
+AGENTS.md
