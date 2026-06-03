@@ -35,7 +35,27 @@ import ConversationSidebar from './components/ConversationSidebar';
 import styles from './App.module.css';
 
 const LAMP_IDS = ['commands', 'files', 'code_interpreter', 'browser'] as const;
+type LampId = typeof LAMP_IDS[number];
 const LAMP_ICONS: Record<string, string> = { commands: '⌨️', files: '📁', code_interpreter: '🐍', browser: '🌐' };
+
+/**
+ * Map an EdgeOne platform tool name to a lamp group.
+ *
+ * The runtime exposes fine-grained tools (e.g. `browser_fetch`,
+ * `browser_screenshot`, `files_read`, `commands_run`,
+ * `code_interpreter_python`). The header only has 4 lamps, so we collapse
+ * each family by prefix / keyword. Returns null for tools that don't belong
+ * to any lamp group (e.g. `web_search`, `load_skill`).
+ */
+function toolToLampId(toolName: string): LampId | null {
+  const name = toolName.toLowerCase();
+  if (name.startsWith('browser') || name.includes('browse')) return 'browser';
+  if (name.startsWith('code_interpreter') || name.startsWith('code-interpreter') || name.startsWith('interpreter')) return 'code_interpreter';
+  if (name.startsWith('files') || name.startsWith('file_') || name.startsWith('fs_')) return 'files';
+  if (name.startsWith('commands') || name.startsWith('command_') || name.startsWith('cmd_') || name.startsWith('shell') || name === 'exec') return 'commands';
+  if ((LAMP_IDS as readonly string[]).includes(name)) return name as LampId;
+  return null;
+}
 const LAMP_I18N_KEYS: Record<string, string> = { commands: 'tool.commands', files: 'tool.files', code_interpreter: 'tool.codeRunner', browser: 'tool.browser' };
 
 const CONVERSATION_ID_STORAGE_KEY = 'eo_conversation_id';
@@ -436,16 +456,19 @@ function AppInner() {
           setBotActivity({ type: 'web_search', label: 'Web searching...', status: 'active' });
         }
 
+        const lampId = toolToLampId(toolName);
+        if (!lampId) return;
+
         setLamps(prev =>
           prev.map(l =>
-            l.id === toolName
+            l.id === lampId
               ? { ...l, active: true, animKey: l.animKey + 1 }
               : l
           )
         );
         setTimeout(() => {
           setLamps(prev =>
-            prev.map(l => (l.id === toolName ? { ...l, active: false } : l))
+            prev.map(l => (l.id === lampId ? { ...l, active: false } : l))
           );
         }, 1000);
       },
