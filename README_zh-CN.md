@@ -2,6 +2,10 @@
 
 基于 Anthropic Claude Agent SDK (Python) 的 EdgeOne Makers Agent 全栈项目模板。演示如何构建一个支持流式聊天、EdgeOne 沙箱工具（MCP 桥接）、会话记忆和工具指示灯的 Agent。
 
+## 部署
+
+[![使用 EdgeOne Pages 部署](https://cdnstatic.tencentcs.com/edgeone/pages/deploy.svg)](https://console.cloud.tencent.com/edgeone/makers/new?template=claude-agent-starter-python&from=within&fromAgent=1&agentLang=python)
+
 ## 功能
 
 - **SSE 流式聊天** — 逐 token 推送 `text_delta`，命中工具时推送 `tool_called`
