@@ -18,17 +18,27 @@
 
 ```text
 claude-agent-starter-python/
-├── agents/                        # Python 后端（EdgeOne Makers）
+├── agents/                        # 有状态的 EdgeOne Makers Agent Functions（Python）
 │   ├── chat/
 │   │   └── index.py              # POST /chat — SSE 流式聊天
-│   ├── history/
-│   │   └── index.py              # POST /history — 对话历史
 │   ├── stop/
-│   │   └── index.py              # POST /stop — 中断 agent
+│   │   └── index.py              # POST /stop — 中断正在执行的 agent
 │   ├── _model.py                 # 模型与网关环境变量配置（私有模块）
 │   ├── _logger.py                # 日志工具（私有模块）
 │   ├── config.json               # 路由配置
 │   └── requirements.txt          # Python agent 依赖
+├── cloud-functions/               # 无状态的 EdgeOne Pages Python cloud functions
+│   ├── history/
+│   │   └── index.py              # POST /history — 拉取对话消息
+│   ├── conversations/
+│   │   └── index.py              # POST /conversations — 列出某用户的会话
+│   ├── clear-history/
+│   │   └── index.py              # POST /clear-history — 清空某会话的消息
+│   ├── delete-conversation/
+│   │   └── index.py              # POST /delete-conversation — 彻底删除某会话
+│   ├── _logger.py                # 日志工具
+│   ├── _redact.py                # 日志敏感字段脱敏
+│   └── requirements.txt          # Python cloud function 依赖
 ├── src/                           # React 前端（Vite + TypeScript）
 │   ├── App.tsx                    # 主应用组件
 │   ├── api.ts                    # 后端 API 封装（SSE 流式调用）
@@ -49,6 +59,8 @@ claude-agent-starter-python/
 ```
 
 > 以 `_` 开头的文件是私有模块，不会被 EdgeOne 映射为公开路由。
+>
+> **为什么后端拆成两个目录？** `agents/` 跑的是有状态、长连接的路由（活跃 SSE 流、按会话维度的 abort 信号）；`cloud-functions/` 跑的是只读写 `context.agent.store` 的短小无状态路由。两者拆开之后，历史记录 / 列表 / 删除等操作就不会和正在进行的对话争抢同一会话的锁。
 
 ## 环境变量
 
@@ -61,11 +73,14 @@ claude-agent-starter-python/
 
 ## API 接口
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/chat` | POST | SSE 流式聊天，Header 带 `makers-conversation-id` |
-| `/stop` | POST | 中断正在执行的 agent，Body 传 `{ "conversation_id": "..." }` |
-| `/history` | POST | 获取对话历史，Header 带 `makers-conversation-id` |
+| 端点 | 方法 | 所在目录 | 说明 |
+|------|------|----------|------|
+| `/chat` | POST | `agents/` | SSE 流式聊天，Header 带 `makers-conversation-id` |
+| `/stop` | POST | `agents/` | 中断正在执行的 agent，Body 传 `{ "conversation_id": "..." }` |
+| `/history` | POST | `cloud-functions/` | 获取对话历史，Body 传 `{ "conversation_id": "..." }` |
+| `/conversations` | POST | `cloud-functions/` | 列出某用户的会话（分页）。Body 传 `{ "user_id": "...", "limit"?: 20, "after"?: "...", "before"?: "...", "order"?: "desc" }` |
+| `/clear-history` | POST | `cloud-functions/` | 清空某会话的全部消息，Body 传 `{ "conversation_id": "..." }` |
+| `/delete-conversation` | POST | `cloud-functions/` | 彻底删除一个会话，Body 传 `{ "conversation_id": "..." }` |
 
 ### SSE 事件
 
@@ -79,14 +94,18 @@ event: done           data: {"stopped":false}
 
 ## 架构
 
-### 后端（`agents/`）
+### 后端（`agents/` + `cloud-functions/`)
+
+`agents/` 是有状态的部分，持有正在进行的 SSE 流以及对应的 AbortSignal：
 
 1. **`collect_gateway_env()`** — 将 `AI_GATEWAY_*` 环境变量映射为 `ANTHROPIC_*` 传给 Claude Agent SDK 子进程
 2. **`context.tools.all()`** — 提取 EdgeOne 沙箱工具并包装为 Claude MCP tools
 3. **`create_sdk_mcp_server()`** — 将 EdgeOne 工具注册为 Claude Agent SDK 的 MCP Server
 4. **`context.store.claude_session_store()`** — 提供 session 持久化，用于多轮对话记忆
 5. **`query(prompt, options)`** — 启动 Claude Agent 并流式输出
-6. **`store.append_message()`** — 保存用户/助手消息，供 `/history` 恢复
+6. **`store.append_message()`** — 保存用户 / 助手消息，方便后续恢复
+
+`cloud-functions/` 负责无状态的会话存储 CRUD（history / conversations / clear-history / delete-conversation）。这些路由直接读写 `context.agent.store`，不会启动 agent，也就不会和正在进行的对话抢同一个会话锁。
 
 ### 前端（`src/`）
 

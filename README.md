@@ -18,17 +18,27 @@ A full-stack EdgeOne Makers Agent template powered by Anthropic Claude Agent SDK
 
 ```text
 claude-agent-starter-python/
-├── agents/                        # Python backend (EdgeOne Makers)
+├── agents/                        # Stateful EdgeOne Makers Agent Functions (Python)
 │   ├── chat/
 │   │   └── index.py              # POST /chat — SSE streaming chat
-│   ├── history/
-│   │   └── index.py              # POST /history — conversation history
 │   ├── stop/
-│   │   └── index.py              # POST /stop — abort active run
+│   │   └── index.py              # POST /stop — abort active agent run
 │   ├── _model.py                 # Model & gateway env config (private module)
 │   ├── _logger.py                # Logger utility (private module)
 │   ├── config.json               # Route config
 │   └── requirements.txt          # Python agent dependencies
+├── cloud-functions/               # Stateless EdgeOne Pages Python cloud functions
+│   ├── history/
+│   │   └── index.py              # POST /history — load conversation messages
+│   ├── conversations/
+│   │   └── index.py              # POST /conversations — list a user's conversations
+│   ├── clear-history/
+│   │   └── index.py              # POST /clear-history — clear messages of one conversation
+│   ├── delete-conversation/
+│   │   └── index.py              # POST /delete-conversation — delete a conversation entirely
+│   ├── _logger.py                # Logger utility
+│   ├── _redact.py                # Sensitive-field redactor for logs
+│   └── requirements.txt          # Python cloud-function dependencies
 ├── src/                           # React frontend (Vite + TypeScript)
 │   ├── App.tsx                    # Main app component
 │   ├── api.ts                    # Backend API wrappers (SSE streaming)
@@ -49,6 +59,8 @@ claude-agent-starter-python/
 ```
 
 > Files prefixed with `_` are private modules — not mapped as public routes by EdgeOne.
+>
+> **Why two backend folders?** `agents/` holds long-running, stateful routes (active SSE streams, per-conversation abort signals); `cloud-functions/` holds short, stateless routes that just read/write `context.agent.store`. Splitting them keeps history/list/delete requests from contending with an active chat for the per-conversation lock.
 
 ## Environment Variables
 
@@ -61,11 +73,14 @@ claude-agent-starter-python/
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/chat` | POST | SSE streaming chat. Header: `makers-conversation-id` |
-| `/stop` | POST | Abort the active agent run. Body: `{ "conversation_id": "..." }` |
-| `/history` | POST | Get conversation history. Header: `makers-conversation-id` |
+| Endpoint | Method | Side | Description |
+|----------|--------|------|-------------|
+| `/chat` | POST | `agents/` | SSE streaming chat. Header: `makers-conversation-id` |
+| `/stop` | POST | `agents/` | Abort the active agent run. Body: `{ "conversation_id": "..." }` |
+| `/history` | POST | `cloud-functions/` | Get conversation history. Body: `{ "conversation_id": "..." }` |
+| `/conversations` | POST | `cloud-functions/` | List a user's conversations (paginated). Body: `{ "user_id": "...", "limit"?: 20, "after"?: "...", "before"?: "...", "order"?: "desc" }` |
+| `/clear-history` | POST | `cloud-functions/` | Clear all messages of one conversation. Body: `{ "conversation_id": "..." }` |
+| `/delete-conversation` | POST | `cloud-functions/` | Permanently delete a conversation. Body: `{ "conversation_id": "..." }` |
 
 ### SSE Events
 
@@ -79,14 +94,18 @@ event: done           data: {"stopped":false}
 
 ## Architecture
 
-### Backend (`agents/`)
+### Backend (`agents/` + `cloud-functions/`)
+
+`agents/` is where the stateful work happens — it owns the live SSE stream and the AbortSignal for the running model call:
 
 1. **`collect_gateway_env()`** — Maps `AI_GATEWAY_*` env vars to `ANTHROPIC_*` for the Claude Agent SDK subprocess
 2. **`context.tools.all()`** — Extracts EdgeOne sandbox tools and wraps them as Claude MCP tools
 3. **`create_sdk_mcp_server()`** — Registers EdgeOne tools as an MCP Server for the Claude Agent SDK
 4. **`context.store.claude_session_store()`** — Provides session persistence for multi-turn memory
 5. **`query(prompt, options)`** — Launches the Claude Agent with streaming output
-6. **`store.append_message()`** — Saves user/assistant messages for `/history` restore
+6. **`store.append_message()`** — Saves user/assistant messages so they can be restored later
+
+`cloud-functions/` handles the stateless conversation-store CRUD (history / conversations / clear-history / delete-conversation). They read/write `context.agent.store` directly without spinning up an agent run, so they don't compete with active chats for the per-conversation lock.
 
 ### Frontend (`src/`)
 
