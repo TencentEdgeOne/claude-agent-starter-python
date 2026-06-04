@@ -98,12 +98,11 @@ async def resolve_claude_session_binding(
         logger.log(f"[session] skip SDK session binding: invalid conversation_id={conversation_id!r}")
         return None, None
 
-    if session_store is None or not hasattr(session_store, "load"):
-        return session_id, None
-
     try:
         from claude_agent_sdk._internal.sessions import project_key_for_directory
 
+        # project_key is load-bearing: EdgeOne ClaudeSessionStore.load() uses it
+        # as a namespace prefix on blob keys. Drop it and load() returns None.
         project_key = project_key_for_directory(os.getcwd())
         entries = await session_store.load({"project_key": project_key, "session_id": session_id})
         if entries:
