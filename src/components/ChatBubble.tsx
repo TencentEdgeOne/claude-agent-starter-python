@@ -89,7 +89,7 @@ export default function ChatBubble({ message }: Props) {
           : (
             <>
               {message.content && (
-                <div className={styles.markdown}>
+                <div className={`${styles.markdown} ${message.streaming ? styles.markdownStreaming : ''}`}>
                   <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
                 </div>
               )}

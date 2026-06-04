@@ -17,7 +17,7 @@ const en = {
   "preset.2": "Create /tmp/fib.py, write Python code to calculate the first 10 Fibonacci numbers, execute it, and print the result.",
   "preset.4": "Visit https://edgeone.ai and summarize the page content.",
   "preset.screenshotEdgeOne": "Take a screenshot of edgeone.ai.",
-  "preset.skill.sandboxAlgorithms": "Use the sandbox-algorithms skill to calculate the first 20 Fibonacci numbers and return the executed result.",
+  "preset.skill.sandboxAlgorithms": "Calculate the first 20 Fibonacci numbers and provide the execution result.",
 
   // Tool indicators
   "tool.commands": "Commands",
