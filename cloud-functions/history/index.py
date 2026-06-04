@@ -116,10 +116,6 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _get_store(self) -> Any:
-        agent = getattr(getattr(self, "context", None), "agent", None)
-        return getattr(agent, "store", None) if agent is not None else None
-
     def do_POST(self):
         start = time.time()
 
@@ -127,10 +123,10 @@ class handler(BaseHTTPRequestHandler):
         conversation_id = str(body.get("conversation_id") or body.get("conversationId") or "").strip()
         user_id = str(body.get("user_id") or body.get("userId") or "").strip() or None
 
-        store = self._get_store()
+        store = self.context.agent.store
         logger.log(f"get_messages: conversation_id={conversation_id!r} user_id={user_id!r}")
 
-        if not conversation_id or store is None or not hasattr(store, "get_messages"):
+        if not conversation_id:
             self._write_json(200, {"conversation_id": conversation_id, "messages": []})
             return
 

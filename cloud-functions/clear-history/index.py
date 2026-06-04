@@ -46,10 +46,6 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _get_store(self) -> Any:
-        agent = getattr(getattr(self, "context", None), "agent", None)
-        return getattr(agent, "store", None) if agent is not None else None
-
     def do_POST(self):
         body = _read_body(self.rfile, self.headers)
 
@@ -60,14 +56,7 @@ class handler(BaseHTTPRequestHandler):
             self._write_json(400, {"status": "error", "message": "conversation_id is required"})
             return
 
-        store = self._get_store()
-        if store is None or not hasattr(store, "clear_messages"):
-            logger.error("context.agent.store.clear_messages is unavailable")
-            self._write_json(
-                501,
-                {"status": "error", "message": "store is unavailable"},
-            )
-            return
+        store = self.context.agent.store
 
         logger.log(f"clear_messages: conversation_id={conversation_id!r} user_id={user_id!r}")
 

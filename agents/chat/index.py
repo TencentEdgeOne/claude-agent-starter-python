@@ -150,7 +150,7 @@ def build_agent_options(
 
 async def handler(ctx: Any) -> AsyncGenerator[str, None]:
     """EdgeOne Makers entry point (async generator streaming)."""
-    cid = getattr(ctx, "conversation_id", None) or ""
+    cid = ctx.conversation_id or ""
 
     body = ctx.request.body
     user_message: str = body.get("message", "") if isinstance(body, dict) else ""
@@ -172,24 +172,21 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         yield sse_event("done", {"stopped": False})
         return
 
-    cancel_signal = getattr(ctx.request, "signal", None) or asyncio.Event()
-    store_adapter = getattr(ctx, "store", None)
+    cancel_signal = ctx.request.signal
+    store_adapter = ctx.store
 
     # Get Claude session store for transcript persistence (matches TS reference).
     # This gives the SDK multi-turn context, preventing chaotic/repeated tool calls.
-    raw_session_store = None
-    if store_adapter and hasattr(store_adapter, "claude_session_store"):
-        try:
-            raw_session_store = store_adapter.claude_session_store()
-            logger.log(f"[session_store] enabled, type={type(raw_session_store).__name__}, value={raw_session_store is not None}")
-        except Exception as e:
-            logger.error(f"[session_store] failed to get claude_session_store: {e}")
-    else:
-        logger.log(f"[session_store] NOT available, store_adapter={type(store_adapter).__name__ if store_adapter else None}, has_method={hasattr(store_adapter, 'claude_session_store') if store_adapter else False}")
+    try:
+        raw_session_store = store_adapter.claude_session_store()
+        logger.log(f"[session_store] enabled, type={type(raw_session_store).__name__}, value={raw_session_store is not None}")
+    except Exception as e:
+        raw_session_store = None
+        logger.error(f"[session_store] failed to get claude_session_store: {e}")
     session_store = raw_session_store
 
     # Save user message (with frontend-generated ID if available)
-    if store_adapter and cid:
+    if cid:
         # === DEBUG: dump all store messages for this conversation ===
         try:
             all_msgs = await store_adapter.get_messages(conversation_id=cid, limit=100, order="asc")
@@ -218,8 +215,8 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
             logger.error(f"[store] failed to save user message: {e}")
 
     # Build EdgeOne platform tools → Claude Agent SDK MCP server
-    raw_tools = getattr(ctx, "tools", None)
-    if raw_tools is None or not hasattr(raw_tools, "to_claude_mcp_server"):
+    raw_tools = ctx.tools
+    if not hasattr(raw_tools, "to_claude_mcp_server"):
         yield sse_event("error", {"message": "context.tools.to_claude_mcp_server is unavailable."})
         yield sse_event("done", {"stopped": False})
         return
