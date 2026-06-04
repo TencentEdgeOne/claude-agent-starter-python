@@ -277,9 +277,34 @@
   40% { transform: translateY(-3px); opacity: 1; }
 }
 
+/* Streaming caret — blinks at the end of the last line of streaming markdown.
+ *
+ * Implementation: rendered as an `::after` pseudo-element on the last child of
+ * the markdown container, so it sits inline at the end of the final paragraph
+ * (or list item, code block, etc.). A separate sibling <span> next to <Markdown>
+ * doesn't work — react-markdown's last block (usually <p>) is `display: block`
+ * and pushes any sibling onto its own line. */
+.markdownStreaming > *:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  margin-left: 3px;
+  vertical-align: -0.18em;
+  background: var(--accent-gold);
+  box-shadow: 0 0 8px var(--accent-gold-glow);
+  border-radius: 2px;
+  animation: streamingCaretBlink 0.6s ease-in-out infinite;
+}
+@keyframes streamingCaretBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.18; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .webSearchActivity::before,
-  .searchDots span {
+  .searchDots span,
+  .markdownStreaming > *:last-child::after {
     animation: none;
   }
 }

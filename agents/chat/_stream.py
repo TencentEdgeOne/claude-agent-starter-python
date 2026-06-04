@@ -34,7 +34,7 @@ except ImportError:  # Keep this module importable when SDK is missing.
 PROJECT_SKILLS = [
     {
         "name": "sandbox-algorithms",
-        "label": "沙箱算法执行",
+        "label": "Sandbox algorithm execution",
         "description": "Run deterministic algorithm scripts through the EdgeOne sandbox code_interpreter and return verified execution results.",
     },
 ]

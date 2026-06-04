@@ -327,6 +327,22 @@ function AppInner() {
     });
   }, []);
 
+  /** Clear the assistant message's `streaming` flag (hides the blinking caret). */
+  const clearBotStreaming = useCallback(() => {
+    setMessages(prev => {
+      let changed = false;
+      const next = prev.map(m => {
+        if (m.id === botMsgIdRef.current && m.streaming) {
+          changed = true;
+          const { streaming, ...rest } = m;
+          return rest;
+        }
+        return m;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
   /** Handle an incoming image SSE event: persist to IndexedDB and append ref to message. */
   const handleImageEvent = useCallback(async (payload: ImageSsePayload) => {
     const { imageId, base64, mimeType = 'image/png', size } = payload;
@@ -397,6 +413,7 @@ function AppInner() {
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
+      streaming: true,
     };
 
     setMessages(prev => [...prev, userMsg, botMsg]);
@@ -519,6 +536,7 @@ function AppInner() {
 
       onDone() {
         finishBotActivity();
+        clearBotStreaming();
         finishStream();
         // Reconcile with backend so the title (and any other fields the runtime
         // synthesized) reflect the server's authoritative state.
@@ -527,13 +545,14 @@ function AppInner() {
 
       onError() {
         finishBotActivity();
+        clearBotStreaming();
         updateBotMessage(content => content || t("status.error"));
         finishStream();
       },
     }, conversationIdRef.current, { userMsgId: userMsg.id, botMsgId }, eoUuidRef.current);
 
     abortCtrlRef.current = ctrl;
-  }, [updateBotMessage, setBotActivity, finishBotActivity, handleImageEvent, finishStream, refreshConversations, t]);
+  }, [updateBotMessage, setBotActivity, finishBotActivity, clearBotStreaming, handleImageEvent, finishStream, refreshConversations, t]);
 
   const handleClearHistory = useCallback(() => {
     const oldConvId = conversationIdRef.current;
