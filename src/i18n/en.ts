@@ -54,6 +54,11 @@ const en = {
   "sidebar.emptyHint": "Click \"New chat\" to start your first conversation.",
   "sidebar.delete": "Delete conversation",
   "sidebar.deleteConfirm": "Permanently delete this conversation? This cannot be undone.",
+
+  // Aria labels (button hover/screen-reader)
+  "aria.send": "Send",
+  "aria.clearHistory": "Clear history",
+  "aria.stopGeneration": "Stop generation",
 } as const;
 
 export default en;

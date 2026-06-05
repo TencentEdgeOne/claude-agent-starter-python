@@ -54,6 +54,11 @@ const zh = {
   "sidebar.emptyHint": "点击「新建聊天」开始第一段对话。",
   "sidebar.delete": "删除会话",
   "sidebar.deleteConfirm": "确定要永久删除这个会话吗？此操作不可恢复。",
+
+  // Aria labels (button hover/screen-reader)
+  "aria.send": "发送",
+  "aria.clearHistory": "清除历史",
+  "aria.stopGeneration": "停止生成",
 } as const;
 
 export default zh;

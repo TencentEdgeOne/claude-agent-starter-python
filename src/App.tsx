@@ -125,7 +125,11 @@ function AppInner() {
   const [lamps, setLamps]       = useState<ToolLampState[]>(buildLamps);
   const [loading, setLoading]   = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
-  const [skillsLoading, setSkillsLoading] = useState(false);
+  // Name of the skill currently being loaded by the SDK. null when no skill
+  // is in flight. Set by the `skill_loaded` SSE event (singular — fires
+  // when the SDK ACTUALLY loads a skill for this turn), auto-cleared
+  // after a short interval so the pill animates out.
+  const [skillInUse, setSkillInUse] = useState<string | null>(null);
   const [rightPanelMode, setRightPanelMode] = useState<'code' | 'debug'>('code');
 
   // Conversation list state (left sidebar)
@@ -527,9 +531,19 @@ function AppInner() {
         }
         setRightPanelMode('debug');
         setDebugEvents(prev => [...prev, event]);
-        if (event.eventType === 'skills_available' || event.eventType === 'skill_loaded') {
-          setSkillsLoading(true);
-          setTimeout(() => setSkillsLoading(false), 2000);
+        // Only react to `skill_loaded` (singular). The plural
+        // `skills_available` / `skills_loaded` events fire on every
+        // request as catalog/config announcements regardless of whether
+        // the model actually uses a skill — they would flash the pill on
+        // every chat. The event payload's `name` is the skill's identifier;
+        // we surface it directly so the user sees WHICH skill is loading.
+        if (event.eventType === 'skill_loaded') {
+          const name =
+            (event.data as { name?: unknown } | null)?.name;
+          if (typeof name === 'string' && name.length > 0) {
+            setSkillInUse(name);
+            setTimeout(() => setSkillInUse(null), 2000);
+          }
         }
       },
 
@@ -718,7 +732,7 @@ function AppInner() {
               </div>
             </div>
             <ToolIndicators lamps={lamps} />
-            {skillsLoading && <span className={styles.skillsLoading}>loading skills...</span>}
+            {skillInUse && <span className={styles.skillsLoading}>using {skillInUse}</span>}
           </header>
 
           <div className={styles.chatWindowShell}>

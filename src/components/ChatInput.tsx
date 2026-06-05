@@ -76,7 +76,7 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
           className={`${styles.sendBtn} ${(!value.trim() || disabled) ? styles.sendDisabled : ''}`}
           onClick={handleSend}
           disabled={!value.trim() || disabled}
-          aria-label="Send"
+          aria-label={t("aria.send")}
         >
           <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
             <path d="M3 10L17 3l-4 7 4 7L3 10z" fill="currentColor"/>
@@ -86,8 +86,8 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
           className={styles.clearBtn}
           onClick={onClear}
           disabled={disabled}
-          aria-label="Clear history"
-          title="Clear history"
+          aria-label={t("aria.clearHistory")}
+          title={t("aria.clearHistory")}
         >
           <svg viewBox="0 0 24 24" fill="none" width="16" height="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="3 6 5 6 21 6"/>
@@ -101,8 +101,8 @@ export default function ChatInput({ onSend, onStop, onClear, disabled }: Props) 
           <button
             className={styles.stopBtn}
             onClick={onStop}
-            aria-label="Stop"
-            title="Stop"
+            aria-label={t("aria.stopGeneration")}
+            title={t("aria.stopGeneration")}
           >
             <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
               <rect x="4" y="4" width="12" height="12" rx="2" fill="currentColor"/>
