@@ -256,9 +256,27 @@ function dispatchSseChunk(part: string, cb: StreamCallbacks, markDone: () => voi
  */
 export async function stopAgent(conversationId?: string): Promise<boolean> {
   try {
+    /**
+     * EdgeOne agents/ runtime requires Markers-Conversation-Id on every
+     * agents/* request (since 2026-06-05 platform upgrade) — without it
+     * the runtime returns 400 (`AGENT_CONVERSATION_ID_REQUIRED`) before
+     * the handler runs.
+     *
+     * Earlier comments in this codebase warned that adding the header on
+     * /stop would overwrite chat's abort signal slot. The new runtime is
+     * expected to no longer have that bug; if you observe stop succeeding
+     * but chat not actually aborting, revisit this and use a different
+     * cancellation channel.
+     */
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (conversationId) {
+      headers['makers-conversation-id'] = conversationId;
+    }
     const res = await fetch(API.chatStop, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ conversation_id: conversationId }),
     });
     return res.ok;
