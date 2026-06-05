@@ -7,7 +7,6 @@ import type {
   ConversationSummary,
 } from './types';
 import {
-  clearConversationHistory,
   deleteConversation,
   fetchConversationHistory,
   listConversations,
@@ -557,13 +556,23 @@ function AppInner() {
   const handleClearHistory = useCallback(() => {
     const oldConvId = conversationIdRef.current;
 
-    // Clear backend history for the old conversation without blocking local UI reset.
-    clearConversationHistory(oldConvId, eoUuidRef.current).then(ok => {
+    // The trash button in ChatInput is the same affordance as the trash
+    // icon on a sidebar item: it should DELETE the conversation entirely,
+    // not just clear its messages. Using `clearConversationHistory` here
+    // would leave the old conversation in the sidebar with an empty body
+    // and a fallback "New chat" title — confusing for users who clicked
+    // trash expecting "make this thread go away".
+    //
+    // Optimistically drop from the sidebar so the user sees the row
+    // disappear immediately; the network call is fire-and-forget.
+    setConversations(prev => prev.filter(c => c.id !== oldConvId));
+
+    deleteConversation(oldConvId, eoUuidRef.current).then(ok => {
       if (!ok) {
-        console.warn('[history] backend clear request failed');
+        console.warn('[delete-conversation] backend request failed');
       }
     }).finally(() => {
-      // Refresh sidebar — the cleared conversation may disappear from the list.
+      // Reconcile with backend in case state diverged.
       void refreshConversations('replace');
     });
 

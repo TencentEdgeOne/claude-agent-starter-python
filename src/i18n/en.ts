@@ -1,7 +1,7 @@
 const en = {
   // Header
   "app.title": "Claude Agent Starter",
-  "app.subtitle": "Running on EdgeOne with sandbox tools, session memory & observability",
+  "app.subtitle": "Running on EdgeOne Makers with sandbox tools, session memory & observability",
 
   // Empty state
   "empty.title": "Claude Agent Starter",
@@ -10,7 +10,7 @@ const en = {
 
   // Chat input
   "chat.placeholder": "Type a message...  ⏎ Send · Shift+⏎ Newline",
-  "chat.hint": "Powered by Claude Agent SDK + EdgeOne Sandbox · Demo only",
+  "chat.hint": "Powered by Claude Agent SDK + EdgeOne Makers · Demo only",
 
   // Preset questions
   "preset.1": "Use terminal commands to check the current system time and OS version.",
