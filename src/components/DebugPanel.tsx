@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default function DebugPanel({ events, onClear }: Props) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function DebugPanel({ events, onClear }: Props) {
                 {evt.eventType}
               </span>
               <span className={styles.eventTime}>
-                {new Date(evt.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                {new Date(evt.timestamp).toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
             </div>
             <pre className={styles.eventData}>

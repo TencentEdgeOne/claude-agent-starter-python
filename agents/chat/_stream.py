@@ -272,8 +272,18 @@ def _handle_assistant_message(msg: Any, state: StreamState, debug_logger: Any = 
                 if tool_name:
                     events.append(sse_event("tool_called", {"tool": tool_name}))
 
-                # Detect skill loading
-                if tool_name == "load_skill" or "load_skill" in raw_name:
+                # Detect skill loading. The Claude Agent SDK's built-in tool
+                # is named `Skill` (capital S, current SDK) but `load_skill`
+                # exists as a legacy alias / short name in some runtime
+                # versions. Match both so an SDK upgrade or rename doesn't
+                # silently disable the skill UI.
+                is_skill_tool = (
+                    tool_name == "Skill"
+                    or tool_name == "load_skill"
+                    or "load_skill" in raw_name
+                    or raw_name.endswith("Skill")
+                )
+                if is_skill_tool:
                     skill_name = _extract_skill_name_from_tool_input(tool_input)
                     if skill_name:
                         events.append(sse_event("skill_loaded", {

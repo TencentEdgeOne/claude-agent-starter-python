@@ -1,6 +1,7 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message, ImageAttachment } from '../types';
+import { useT } from '../i18n';
 import styles from './ChatBubble.module.css';
 
 interface Props {
@@ -57,6 +58,7 @@ function getImageSrc(img: ImageAttachment | string): string {
 }
 
 export default function ChatBubble({ message }: Props) {
+  const { lang } = useT();
   const isUser = message.role === 'user';
   const content = isUser ? message.content : normalizeMarkdown(message.content);
   const hasImages = message.images && message.images.length > 0;
@@ -121,10 +123,14 @@ export default function ChatBubble({ message }: Props) {
           )
         }
         <span className={styles.time}>
-          {new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+          {new Date(message.timestamp).toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
-      {isUser && <div className={`${styles.avatar} ${styles.userAvatar}`}>你</div>}
+      {isUser && (
+        <div className={`${styles.avatar} ${styles.userAvatar}`}>
+          {lang === 'zh' ? '你' : 'U'}
+        </div>
+      )}
     </div>
   );
 }
