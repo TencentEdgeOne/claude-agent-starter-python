@@ -1,7 +1,5 @@
 # Claude Agent Starter (Python)
 
-**语言：** [English](./README.md) | 简体中文
-
 一个跑在 EdgeOne Makers 上的全栈 Python Agent 模板：基于 Claude Agent SDK 的流式聊天，通过 MCP 桥接 EdgeOne 沙箱工具，会话记忆持久化在 `context.agent.store`。
 
 **Framework：** Claude Agent SDK · **Category：** Quick Start <!-- TODO: confirm --> · **Language：** Python

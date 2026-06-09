@@ -1,7 +1,5 @@
 # Claude Agent Starter (Python)
 
-**Language:** English | [简体中文](./README_zh-CN.md)
-
 A full-stack EdgeOne Makers Agent template — streaming chat backed by the Claude Agent SDK (Python), with EdgeOne sandbox tools wired in via MCP and conversation memory persisted through `context.agent.store`.
 
 **Framework:** Claude Agent SDK · **Category:** Quick Start <!-- TODO: confirm --> · **Language:** Python
