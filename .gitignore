@@ -30,6 +30,12 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 uv.toml
+# Local toolchain pin — EdgeOne Makers runs Python 3.12; let each
+# contributor manage their own pyenv/asdf without forcing a version.
+.python-version
+# Local toolchain pin — EdgeOne Makers runs Python 3.12; let each
+# contributor manage their own pyenv/asdf without forcing a version.
+.python-version
 
 # Internal planning docs
 plan/
