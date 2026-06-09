@@ -4,8 +4,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ========== Fix SSL for the entire process ==========
-# 使用 truststore 让 Python 直接使用系统证书库（macOS Keychain / Windows Certificate Store），
-# 解决 macOS 本地开发时 SSL_CERT_FILE 无效导致 sandbox 工具调用失败的问题。
+# Use truststore so Python reads from the system certificate store directly
+# (macOS Keychain / Windows Certificate Store). Fixes sandbox tool calls
+# failing on local macOS dev when SSL_CERT_FILE doesn't take effect.
 try:
     import truststore
 

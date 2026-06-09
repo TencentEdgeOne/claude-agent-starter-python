@@ -1,11 +1,11 @@
 export interface ImageAttachment {
-  id: string;              // 图片 ID，来自 SSE imageId
+  id: string;              // Image ID — comes from the SSE imageId payload
   storageKey: string;      // IndexedDB key: `${conversationId}/${imageId}`
-  url: string;             // 运行时 blob: URL，只用于渲染，不持久化
+  url: string;             // Runtime blob: URL, render-only, not persisted
   mimeType: string;
   size: number;
   createdAt: number;
-  persistent: boolean;     // 是否已成功写入 IndexedDB
+  persistent: boolean;     // True once the blob has been written to IndexedDB
 }
 
 export interface ImageSsePayload {
@@ -40,7 +40,7 @@ export interface ToolLampState {
   label: string;
   icon: string;
   active: boolean;
-  animKey: number;   // 每次点亮时递增，让动画元素重新挂载以复播动画
+  animKey: number;   // Increments on each activation so the animation element re-mounts and the animation replays.
 }
 
 /**

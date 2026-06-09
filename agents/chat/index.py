@@ -205,8 +205,8 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
         # === END DEBUG ===
 
         try:
-            # append_message 只支持: conversation_id, role, content, metadata, user_id
-            # 不支持 message_id 参数（SDK 自动生成 message_id）
+            # append_message accepts only: conversation_id, role, content, metadata, user_id.
+            # message_id is not supported (the SDK auto-generates one).
             await store_adapter.append_message(
                 conversation_id=cid,
                 role="user",
@@ -288,7 +288,7 @@ async def handler(ctx: Any) -> AsyncGenerator[str, None]:
 
     if store_adapter and cid and assistant_content:
         try:
-            # append_message 只支持: conversation_id, role, content, metadata, user_id
+            # append_message accepts only: conversation_id, role, content, metadata, user_id.
             await store_adapter.append_message(
                 conversation_id=cid,
                 role="assistant",
