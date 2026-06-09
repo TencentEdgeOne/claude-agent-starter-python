@@ -14,13 +14,15 @@ export default function ChatWindow({ messages, loading }: Props) {
   const { t } = useT();
 
   useEffect(() => {
-    // 没有内容时不需要滚动
+    // Nothing to scroll to when the window is empty.
     if (messages.length === 0 && !loading) return;
-    // 直接操作容器 scrollTop，只滚动 ChatWindow 内部
-    // 避免 scrollIntoView 滚动所有祖先元素导致 header 消失
+    // Drive scroll on the container's own scrollTop instead of using
+    // scrollIntoView — the latter walks every ancestor, which scrolls the
+    // page header out of view.
     const el = windowRef.current;
     if (!el) return;
-    // 流式输出期间用 instant 避免 smooth 动画堆积导致抖动，结束后再用 smooth
+    // While streaming, use 'instant' so successive smooth animations don't
+    // pile up and jitter; once streaming ends, fall back to 'smooth'.
     el.scrollTo({ top: el.scrollHeight, behavior: loading ? 'instant' : 'smooth' });
   }, [messages, loading]);
 
@@ -43,10 +45,11 @@ export default function ChatWindow({ messages, loading }: Props) {
         <ChatBubble key={msg.id} message={msg} />
       ))}
 
-      {/* 三点 typing row 只填补"等待第一个 token"的空白。
-       * 一旦助手 bubble 有内容（或自身 activity 子指示器接管），
-       * bubble 内的 streamingCaret 接手"还在干活"信号——避免出现
-       * 同一轮里两个并列的 bot 气泡。 */}
+      {/* The 3-dot typing row only fills the gap "waiting for the first
+       * token". Once the assistant bubble has any content (or its own
+       * activity sub-indicator takes over), the in-bubble streamingCaret
+       * carries the "still working" signal — this avoids two parallel bot
+       * bubbles in the same turn. */}
       {loading && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (messages[messages.length - 1].content.length > 0 || messages[messages.length - 1].activity)) && (
         <div className={styles.typingRow}>
           <div className={styles.avatar}>⬡</div>

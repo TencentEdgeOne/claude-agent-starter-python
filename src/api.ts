@@ -1,15 +1,15 @@
 /**
- * 后端接口（EdgeOne Makers）
+ * Backend API client (EdgeOne Makers).
  *
- * 路由映射规则（文件 → 路由）：
- *   agents/chat/index.py         → POST /chat                主聊天入口
- *   agents/stop/index.py         → POST /stop                中断正在执行的 agent
- *   agents/history/index.py      → POST /history             获取历史消息
- *   agents/clear-history/index.py → POST /clear-history      清除历史消息
- *   agents/conversations/index.py → POST /conversations       列出用户会话
- *   agents/delete-conversation/index.py → POST /delete-conversation 永久删除会话
+ * Route mapping (file → route):
+ *   agents/chat/index.py                → POST /chat                main chat entry
+ *   agents/stop/index.py                → POST /stop                abort the running agent
+ *   agents/history/index.py             → POST /history             load message history
+ *   agents/clear-history/index.py       → POST /clear-history       clear message history
+ *   agents/conversations/index.py       → POST /conversations       list user conversations
+ *   agents/delete-conversation/index.py → POST /delete-conversation permanently delete a conversation
  *
- * 本文件集中定义所有路径 + 请求封装，方便以后扩展子路由。
+ * This file centralises all paths and request wrappers so adding sub-routes later is straightforward.
  */
 
 import type { Message, ImageSsePayload, ListConversationsParams, ListConversationsResponse } from './types';
@@ -52,7 +52,7 @@ export interface StreamCallbacks {
   onRawEvent?: (event: RawSseEvent) => void;
 }
 
-/** 获取当前 conversation 的历史消息，用于刷新页面后恢复聊天窗口。 */
+/** Fetch the conversation's message history — used to restore the chat window after a page refresh. */
 export async function fetchConversationHistory(conversationId: string, userId?: string): Promise<Message[]> {
   const startTime = performance.now();
   console.log(`[history] start: ${new Date().toISOString()}`);
@@ -67,7 +67,8 @@ export async function fetchConversationHistory(conversationId: string, userId?: 
         body: JSON.stringify({ conversation_id: conversationId, user_id: userId }),
       });
 
-      // 409 = 同 conversation 有活跃请求（React StrictMode 双渲染导致），等一下重试
+      // 409 = an active request already exists for this conversation (often
+      // caused by React StrictMode's double render). Briefly back off and retry.
       if (res.status === 409) {
         await new Promise(r => setTimeout(r, 500));
         continue;
@@ -94,10 +95,10 @@ export async function fetchConversationHistory(conversationId: string, userId?: 
 }
 
 /**
- * 通过 SSE 流式调用 POST /chat
- * 后端推送事件：text_delta / tool_called / image / skills_loaded / skills_available / skill_loaded / ping / done / error
+ * Stream POST /chat over SSE.
+ * Backend events: text_delta / tool_called / image / skills_loaded / skills_available / skill_loaded / ping / done / error.
  *
- * 返回一个 AbortController，调用方可用它中断请求（或配合 /stop 端点优雅中止）。
+ * Returns an AbortController the caller can use to abort the request (or pair with /stop for a graceful stop).
  */
 export function sendMessageStream(
   message: string,
@@ -150,9 +151,9 @@ export function sendMessageStream(
 
         buffer += decoder.decode(value, { stream: true });
 
-        // SSE 格式：每个事件以 \n\n 分隔
+        // SSE format: events are separated by \n\n.
         const parts = buffer.split('\n\n');
-        // 最后一段可能不完整，保留在 buffer 里
+        // The trailing chunk may be incomplete — keep it in the buffer.
         buffer = parts.pop() || '';
 
         for (const part of parts) {
@@ -161,12 +162,12 @@ export function sendMessageStream(
         }
       }
 
-      // 仅在后端未发送 done 事件时作为 fallback 触发完成
+      // Fallback: only fire onDone if the backend never sent a `done` event.
       if (!doneReceived) {
         callbacks.onDone();
       }
     } catch (err) {
-      // AbortError 不触发错误回调
+      // AbortError shouldn't trigger the error callback.
       if (err instanceof DOMException && err.name === 'AbortError') return;
       callbacks.onError(err instanceof Error ? err : new Error(String(err)));
     }
@@ -175,7 +176,7 @@ export function sendMessageStream(
   return ctrl;
 }
 
-/** 解析一条 SSE 事件并分发给对应回调 */
+/** Parse a single SSE event and dispatch it to the matching callback. */
 function dispatchSseChunk(part: string, cb: StreamCallbacks, markDone: () => void): void {
   let eventType = '';
   let data = '';
@@ -248,11 +249,14 @@ function dispatchSseChunk(part: string, cb: StreamCallbacks, markDone: () => voi
 }
 
 /**
- * 请求后端中断当前正在执行的 agent
+ * Ask the backend to abort the agent currently running for this conversation.
  *
- * 注意：stop 请求的 header 不能带和 chat 相同的 conversation_id，
- * 否则 runtime 会用 stop 的 cancel_event 覆盖 chat 的 cancel_event，
- * 导致 abort_active_run 失效。目标 conversation_id 只通过 body 传递。
+ * Historical note: an earlier runtime version had a bug where the chat and
+ * stop requests shared a single cancel_event slot keyed by header
+ * conversation_id, so passing Markers-Conversation-Id on /stop would
+ * overwrite the chat's abort signal. The current runtime is expected to
+ * route stop independently — but if you ever observe "stop returned 200 yet
+ * chat keeps streaming," revisit this and switch to a body-only channel.
  */
 export async function stopAgent(conversationId?: string): Promise<boolean> {
   try {
@@ -285,7 +289,7 @@ export async function stopAgent(conversationId?: string): Promise<boolean> {
   }
 }
 
-/** 清除后端 conversation 历史。 */
+/** Clear the backend conversation history. */
 export async function clearConversationHistory(conversationId?: string, userId?: string): Promise<boolean> {
   if (!conversationId) return false;
 

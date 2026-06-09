@@ -128,7 +128,7 @@ export default function ChatBubble({ message }: Props) {
       </div>
       {isUser && (
         <div className={`${styles.avatar} ${styles.userAvatar}`}>
-          {lang === 'zh' ? '你' : 'U'}
+          U
         </div>
       )}
     </div>
