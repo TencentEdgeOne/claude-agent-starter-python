@@ -25,6 +25,7 @@
 | `AI_GATEWAY_API_KEY` | 是 | 模型网关 API Key。可填 Makers Models 的 API Key，也可以是任意 OpenAI 兼容服务商的 Key。 |
 | `AI_GATEWAY_BASE_URL` | 是 | 网关 Base URL。Makers Models 请使用 `https://ai-gateway.edgeone.link/v1`。 |
 | `AI_GATEWAY_MODEL` | 否 | 模型 ID。默认 `@makers/deepseek-v4-flash`（内置免费模型）。 |
+| `WSA_API_KEY` | 否 | 腾讯云 Web Search API Key。仅在使用联网搜索工具时需要，详见[如何获取 `WSA_API_KEY`](#如何获取-wsa_api_key)。 |
 
 模板遵循 OpenAI 兼容协议，可以指向 Makers Models，也可以指向任意 OpenAI 兼容的服务商。
 
@@ -36,6 +37,10 @@
 4. 把它粘到 `AI_GATEWAY_API_KEY`。
 
 内置的 `@makers/deepseek-v4-flash` 免费但有用量限制，适合验证；生产建议自行绑定付费厂商（BYOK）。
+
+### 如何获取 `WSA_API_KEY`
+
+`WSA_API_KEY` 仅在调用联网搜索工具时需要。前往 [腾讯云 Web Search Agent 产品页](https://cloud.tencent.com/product/wsa) 申请开通，将下发的 Key 填入 `WSA_API_KEY` 即可。
 
 ### Provider fallbacks
 

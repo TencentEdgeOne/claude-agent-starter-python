@@ -25,6 +25,7 @@ A minimal, production-shaped Python starter that wires the Claude Agent SDK into
 | `AI_GATEWAY_API_KEY` | Yes | Model gateway API key. Use your Makers Models API Key, or any OpenAI-compatible provider key. |
 | `AI_GATEWAY_BASE_URL` | Yes | Gateway base URL. For Makers Models, use `https://ai-gateway.edgeone.link/v1`. |
 | `AI_GATEWAY_MODEL` | No | Model ID. Defaults to `@makers/deepseek-v4-flash` (a free built-in model). |
+| `WSA_API_KEY` | No | Tencent Cloud Web Search API key. Required only if you use the web-search tool. See [How to get `WSA_API_KEY`](#how-to-get-wsa_api_key). |
 
 This template follows the OpenAI-compatible standard — point these at Makers Models or any compatible provider.
 
@@ -36,6 +37,10 @@ This template follows the OpenAI-compatible standard — point these at Makers M
 4. Copy it into `AI_GATEWAY_API_KEY`.
 
 The built-in `@makers/deepseek-v4-flash` model is free with a usage cap and is suitable for prototyping. For production, bind your own paid provider (BYOK).
+
+### How to get `WSA_API_KEY`
+
+`WSA_API_KEY` is only needed if you call the web-search tool. Apply for one on the [Tencent Cloud Web Search Agent product page](https://cloud.tencent.com/product/wsa), then copy the issued key into `WSA_API_KEY`.
 
 ### Provider fallbacks
 
