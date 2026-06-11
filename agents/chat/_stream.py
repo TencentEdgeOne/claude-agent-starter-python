@@ -130,28 +130,83 @@ def _extract_skill_name_from_tool_input(tool_input: Any) -> str | None:
 
 def _extract_images_from_tool_result(block: Any, state: StreamState) -> list[str]:
     """
-    Extract base64Image from tool_result content and return SSE image events.
+    Extract images from tool_result content and return SSE image events.
     Matches TS reference: emitToolResultImages().
+
+    Handles two shapes:
+      1. Anthropic standard image content block:
+         {type: "image", source: {type: "base64", media_type: "image/png", data: "<b64>"}}
+         — emitted by EdgeOne's browser screenshot tool, code_interpreter
+         renders, and anything else that returns images natively. Without
+         this branch the model inlines a giant ![](data:image/png;base64,...)
+         blob into the assistant text instead of streaming a real image.
+      2. Legacy JSON inside a text block:
+         [{type: "text", text: '{"base64Image": "<b64>"}'}]
+         — used by some EdgeOne first-party tools.
     """
     events: list[str] = []
     content = getattr(block, "content", None)
 
-    texts_to_check: list[str] = []
+    # Normalize content into an iterable of items so we can walk both shapes.
+    items: list[Any]
+    if isinstance(content, list):
+        items = content
+    elif content is None:
+        items = []
+    else:
+        items = [content]
 
-    if isinstance(content, str):
-        texts_to_check.append(content)
-    elif isinstance(content, list):
-        for item in content:
-            if isinstance(item, str):
-                texts_to_check.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text") or item.get("content") or ""
-                if text:
-                    texts_to_check.append(str(text))
-            else:
-                text = getattr(item, "text", None) or getattr(item, "content", None)
-                if text:
-                    texts_to_check.append(str(text))
+    # ── Shape 1: native image content block ────────────────────────────────
+    for item in items:
+        # dict-shape (when SDK gives us a plain dict) or attr-shape (when
+        # SDK gives us a typed object) — handle both.
+        item_type = (
+            item.get("type") if isinstance(item, dict)
+            else getattr(item, "type", None)
+        )
+        if item_type != "image":
+            continue
+        source = (
+            item.get("source") if isinstance(item, dict)
+            else getattr(item, "source", None)
+        )
+        if not source:
+            continue
+        source_type = (
+            source.get("type") if isinstance(source, dict)
+            else getattr(source, "type", None)
+        )
+        data = (
+            source.get("data") if isinstance(source, dict)
+            else getattr(source, "data", None)
+        )
+        media_type = (
+            source.get("media_type") if isinstance(source, dict)
+            else getattr(source, "media_type", None)
+        ) or "image/png"
+        if source_type == "base64" and isinstance(data, str) and data:
+            image_id = str(uuid.uuid4())
+            events.append(sse_event("image", {
+                "imageId": image_id,
+                "base64": data,
+                "mimeType": media_type,
+                "size": len(data),
+            }))
+            state.has_images = True
+
+    # ── Shape 2: text-wrapped JSON with base64Image field ──────────────────
+    texts_to_check: list[str] = []
+    for item in items:
+        if isinstance(item, str):
+            texts_to_check.append(item)
+        elif isinstance(item, dict):
+            text = item.get("text") or item.get("content") or ""
+            if text:
+                texts_to_check.append(str(text))
+        else:
+            text = getattr(item, "text", None) or getattr(item, "content", None)
+            if text:
+                texts_to_check.append(str(text))
 
     for text in texts_to_check:
         if "base64Image" not in text:
