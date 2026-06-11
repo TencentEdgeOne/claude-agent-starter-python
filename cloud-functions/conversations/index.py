@@ -1,5 +1,5 @@
 """
-Conversations handler — EdgeOne Pages Python cloud function.
+Conversations handler — EdgeOne Makers Python cloud function.
 
 POST /conversations
   Body:    { user_id, limit?, order?, after?, before? }

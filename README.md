@@ -70,7 +70,7 @@ claude-agent-starter-python/
 │   ├── _logger.py                  # Logger utility (private)
 │   ├── config.json                 # Route config
 │   └── requirements.txt            # Python agent dependencies
-├── cloud-functions/                 # Stateless EdgeOne Pages Python cloud functions
+├── cloud-functions/                 # Stateless EdgeOne Makers Python cloud functions
 │   ├── history/index.py            # POST /history — load conversation messages
 │   ├── conversations/index.py      # POST /conversations — list a user's conversations
 │   ├── clear-history/index.py      # POST /clear-history — clear messages of one conversation

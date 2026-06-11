@@ -1,5 +1,5 @@
 """
-Clear-history handler — EdgeOne Pages Python cloud function.
+Clear-history handler — EdgeOne Makers Python cloud function.
 
 POST /clear-history
   Body:    { conversation_id, user_id? }

@@ -1,5 +1,5 @@
 """
-Delete-conversation handler — EdgeOne Pages Python cloud function.
+Delete-conversation handler — EdgeOne Makers Python cloud function.
 
 POST /delete-conversation
   Body:    { conversation_id, user_id? }

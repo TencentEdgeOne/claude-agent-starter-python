@@ -1,6 +1,6 @@
 # Sandbox Tooling Reference
 
-The EdgeOne Pages Agent Toolkit exposes sandbox execution through `context.sandbox` and `context.tools`.
+The EdgeOne Makers Agent Toolkit exposes sandbox execution through `context.sandbox` and `context.tools`.
 
 For Claude Agent SDK, tools are usually registered through `context.tools.toClaudeMcpServer()`.
 

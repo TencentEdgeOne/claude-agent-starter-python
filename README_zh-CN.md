@@ -70,7 +70,7 @@ claude-agent-starter-python/
 │   ├── _logger.py                  # 日志工具（私有）
 │   ├── config.json                 # 路由配置
 │   └── requirements.txt            # Python agent 依赖
-├── cloud-functions/                 # 无状态的 EdgeOne Pages Python cloud functions
+├── cloud-functions/                 # 无状态的 EdgeOne Makers Python cloud functions
 │   ├── history/index.py            # POST /history —— 拉取对话消息
 │   ├── conversations/index.py      # POST /conversations —— 列出某用户的会话
 │   ├── clear-history/index.py      # POST /clear-history —— 清空某会话的消息
