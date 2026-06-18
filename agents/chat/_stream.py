@@ -530,6 +530,10 @@ def sdk_message_to_sse(msg: Any, state: StreamState, debug_logger: Any = None) -
 
     # --- Unknown message types: emit debug_msg ---
     msg_type = getattr(msg, "type", type(msg).__name__)
+    msg_subtype = getattr(msg, "subtype", None)
+    if msg_type == "system" and msg_subtype == "thinking_tokens":
+        return [], False
+
     return [sse_event("debug_msg", {
         "msgType": msg_type,
         "preview": _safe_json_preview(msg, 4000),
